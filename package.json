@@ -39,12 +39,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aashir-athar/expo-transaction-sms-reader"
+    "url": "https://github.com/aashir-athar/expo-transaction-sms-reader"
   },
   "bugs": {
     "url": "https://github.com/aashir-athar/expo-transaction-sms-reader/issues"
   },
-  "author": "Your Name <you@example.com> (https://github.com/aashir-athar)",
+  "author": "aashir-athar (https://github.com/aashir-athar)",
   "license": "MIT",
   "homepage": "https://github.com/aashir-athar/expo-transaction-sms-reader#readme",
   "files": [
@@ -60,12 +60,12 @@
   ],
   "app.plugin.js": "./app.plugin.js",
   "peerDependencies": {
-    "expo": "^54.0.0",
+    "expo": "^54.0.33",
     "react": "*",
     "react-native": "*"
   },
   "devDependencies": {
-    "@types/react": "~18.3.12",
+    "@types/react": "~19.1.0",
     "expo-module-scripts": "^4.0.0",
     "expo-modules-core": "~2.0.0"
   }

@@ -2,7 +2,6 @@ import { NativeModule, requireNativeModule } from 'expo';
 
 import type {
   ExpoTransactionSmsReaderEvents,
-  GetRecentMessagesOptions,
   RawSmsMessage,
   SmsPermissionStatus,
   StartListeningOptions,

@@ -11,7 +11,7 @@
 import { Platform, type EventSubscription } from 'expo-modules-core';
 
 import NativeModule from './ExpoTransactionSmsReaderModule';
-import { isLikelyTransactionSms, parseTransactionSms, runParsers } from './parser';
+import { runParsers } from './parser';
 import type {
   CustomParser,
   GetRecentMessagesOptions,

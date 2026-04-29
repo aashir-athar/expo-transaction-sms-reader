@@ -22,7 +22,7 @@ coverage/
 .nyc_output/
 
 # ─────────────────────────────────────────────
-# Logs & npm/yarn debug
+# Logs, caches & crash dumps
 # ─────────────────────────────────────────────
 *.log
 npm-debug.log*
@@ -30,6 +30,16 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+.npm/
+hs_err_pid*.log
+replay_pid*.log
+
+# ─────────────────────────────────────────────
+# Merge / patch / backup artefacts
+# ─────────────────────────────────────────────
+*.bak
+*.orig
+*.rej
 
 # ─────────────────────────────────────────────
 # Packing artefacts (`npm pack` / `npm publish --dry-run`)
@@ -47,6 +57,11 @@ lerna-debug.log*
 keystore.properties
 google-services.json
 GoogleService-Info.plist
+*.pem
+*.key
+*.cer
+*.p12
+*.pfx
 
 # ─────────────────────────────────────────────
 # Editors & IDEs
