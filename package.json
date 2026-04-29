@@ -1,0 +1,72 @@
+{
+  "name": "expo-transaction-sms-reader",
+  "version": "0.1.0",
+  "description": "Android-only Expo Module (SDK 54) that listens to incoming SMS, intelligently parses banking & wallet transaction messages, and exposes a typed real-time event API for fintech, budgeting, and expense-tracking apps.",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "sideEffects": false,
+  "scripts": {
+    "build": "expo-module build",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "prepare": "expo-module prepare",
+    "prepublishOnly": "expo-module prepublishOnly",
+    "expo-module": "expo-module",
+    "open:android": "open -a \"Android Studio\" example/android"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "expo-module",
+    "expo-modules",
+    "expo-sdk-54",
+    "android",
+    "sms",
+    "sms-reader",
+    "sms-listener",
+    "transaction",
+    "transaction-sms",
+    "banking",
+    "fintech",
+    "wallet",
+    "upi",
+    "pakistan",
+    "india",
+    "bangladesh",
+    "broadcast-receiver",
+    "kotlin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/expo-transaction-sms-reader.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/expo-transaction-sms-reader/issues"
+  },
+  "author": "Your Name <you@example.com> (https://github.com/your-org)",
+  "license": "MIT",
+  "homepage": "https://github.com/your-org/expo-transaction-sms-reader#readme",
+  "files": [
+    "build",
+    "android",
+    "ios",
+    "src",
+    "plugin/build",
+    "app.plugin.js",
+    "expo-module.config.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "app.plugin.js": "./app.plugin.js",
+  "peerDependencies": {
+    "expo": "^54.0.0",
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "@types/react": "~18.3.12",
+    "expo-module-scripts": "^4.0.0",
+    "expo-modules-core": "~2.0.0"
+  }
+}

@@ -1,0 +1,107 @@
+# ─────────────────────────────────────────────
+# Dependencies
+# ─────────────────────────────────────────────
+node_modules/
+.yarn/cache
+.yarn/install-state.gz
+.pnp.*
+
+# ─────────────────────────────────────────────
+# Build output (TypeScript → build/, plugin/build/)
+# ─────────────────────────────────────────────
+build/
+plugin/build/
+*.tsbuildinfo
+dist/
+
+# ─────────────────────────────────────────────
+# Test & coverage
+# ─────────────────────────────────────────────
+coverage/
+*.lcov
+.nyc_output/
+
+# ─────────────────────────────────────────────
+# Logs & npm/yarn debug
+# ─────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─────────────────────────────────────────────
+# Packing artefacts (`npm pack` / `npm publish --dry-run`)
+# ─────────────────────────────────────────────
+*.tgz
+
+# ─────────────────────────────────────────────
+# Secrets — NEVER commit these
+# ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+keystore.properties
+google-services.json
+GoogleService-Info.plist
+
+# ─────────────────────────────────────────────
+# Editors & IDEs
+# ─────────────────────────────────────────────
+.vscode/
+.idea/
+.vs/
+*.iml
+*.swp
+*.swo
+*~
+.history/
+*.sublime-project
+*.sublime-workspace
+
+# ─────────────────────────────────────────────
+# OS files
+# ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─────────────────────────────────────────────
+# Expo
+# ─────────────────────────────────────────────
+.expo/
+.expo-shared/
+web-build/
+
+# ─────────────────────────────────────────────
+# Metro
+# ─────────────────────────────────────────────
+.metro-health-check*
+metro-cache/
+
+# ─────────────────────────────────────────────
+# Android
+# ─────────────────────────────────────────────
+android/.gradle/
+android/build/
+android/.cxx/
+android/captures/
+android/local.properties
+*.apk
+*.aab
+proguard/
+
+# ─────────────────────────────────────────────
+# Example app — fully regenerable via `npx expo prebuild --clean`
+# Keep example/App.tsx + example/package.json (if present), ignore the rest.
+# ─────────────────────────────────────────────
+example/node_modules/
+example/.expo/
+example/android/
+example/ios/
+example/web-build/
+example/dist/

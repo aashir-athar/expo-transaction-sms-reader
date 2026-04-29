@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      The receiver itself is registered programmatically at runtime to avoid
+      the Play Store SMS-permission policy review that statically declared
+      receivers trigger. Permissions are declared here so they appear in the
+      merged manifest of any consuming app — the config plugin keeps these in
+      sync with the app-level manifest as well.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+
+</manifest>

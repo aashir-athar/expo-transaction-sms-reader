@@ -1,0 +1,20 @@
+# Source maps & TS sources for the plugin live next to the build output.
+plugin/src/
+plugin/tsconfig.json
+plugin/__tests__/
+
+# Test scaffolding & local dev artefacts
+__tests__/
+__mocks__/
+example/
+.eslintrc*
+.prettierrc*
+tsconfig.json
+tsconfig.plugin.json
+*.log
+node_modules/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
