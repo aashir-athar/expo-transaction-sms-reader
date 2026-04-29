@@ -39,14 +39,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/expo-transaction-sms-reader.git"
+    "url": "git+https://github.com/aashir-athar/expo-transaction-sms-reader"
   },
   "bugs": {
-    "url": "https://github.com/your-org/expo-transaction-sms-reader/issues"
+    "url": "https://github.com/aashir-athar/expo-transaction-sms-reader/issues"
   },
-  "author": "Your Name <you@example.com> (https://github.com/your-org)",
+  "author": "Your Name <you@example.com> (https://github.com/aashir-athar)",
   "license": "MIT",
-  "homepage": "https://github.com/your-org/expo-transaction-sms-reader#readme",
+  "homepage": "https://github.com/aashir-athar/expo-transaction-sms-reader#readme",
   "files": [
     "build",
     "android",
