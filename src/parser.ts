@@ -4,17 +4,29 @@
  * TypeScript so callers can re-run it on raw SMS pulled from anywhere — not
  * just the live broadcast.
  *
- * The parser is intentionally conservative: it returns `null` (or low
- * confidence) when it cannot identify enough signal, rather than guessing.
+ * The parser is intentionally **strict**: a message is treated as a
+ * transaction only when it satisfies BOTH of these:
+ *
+ *   1. A past-tense, money-moved keyword (`debited`, `credited`, `deducted`,
+ *      `withdrawn`, `transferred to/from`, `received from/in`, `refunded`,
+ *      `deposited`, `added to your`, `credit alert`, `debit alert`, …).
+ *   2. A currency-tagged numeric amount (`Rs. 500`, `PKR 1,250`, `₹500`,
+ *      `$12.34`, `1500 PKR`, `Rs.500/-`, …).
+ *
+ * Either condition alone is not enough — bills, balance reminders, low-credit
+ * alerts, recharge nags, and promotional offers all routinely match one or
+ * the other in isolation. Requiring both eliminates the entire "any SMS with
+ * a digit gets flagged" failure mode.
  *
  * Public functions exported from this module:
- *   - parseTransactionSms(raw)   — best-effort transaction parse
- *   - isLikelyTransactionSms(b)  — keyword-only gate, very fast
- *   - isLikelyOtpSms(b)          — true if the body looks like a 2FA / OTP code
- *   - extractOtp(raw)            — pull the OTP digits out, when present
- *   - classifySms(raw)           — coarse SmsCategory classifier
- *   - normaliseBankCode(addr)    — DLT short code → canonical bank id
- *   - runParsers(raw, custom)    — custom parsers ↦ built-in fallback
+ *   - parseTransactionSms(raw)        — strict transaction parse
+ *   - isLikelyTransactionSms(body)    — fast strict gate (same rule)
+ *   - isLikelyOtpSms(body)            — true for 2FA / OTP codes (excludes transaction confirmations)
+ *   - isLikelyPromotionalSms(body)    — true for promo / marketing messages
+ *   - extractOtp(raw)                 — pull the OTP digits out, when present
+ *   - classifySms(raw)                — coarse SmsCategory classifier
+ *   - normaliseBankCode(addr)         — DLT short code → canonical bank id
+ *   - runParsers(raw, custom)         — custom parsers ↦ built-in fallback
  */
 
 import type {
@@ -32,48 +44,87 @@ import type {
 // Vocabulary
 // ---------------------------------------------------------------------------
 
-const DEBIT_KEYWORDS = [
+/**
+ * **Past-tense, transaction-only debit verbs.** These are the only words
+ * that, on their own, justify treating an SMS as a money-out event. Single
+ * words like "debit" or "spent" are *not* in this list because they appear
+ * in promo copy ("Apply for our debit card", "Spend smarter with us").
+ */
+const STRONG_DEBIT_KEYWORDS = [
   'debited',
-  'debit',
-  'spent',
-  'paid',
-  'purchase',
-  'withdrawn',
-  'withdrawal',
-  'sent',
-  'transferred to',
-  'tx of',
-  'txn of',
-  'charged',
   'deducted',
+  'withdrawn',
+  'has been charged',
+  'was charged',
+  'charged as',
+  'charged for',
+  'charged from',
+  'charged on',
+  'fee charged',
+  'amount charged',
+  'amount debited',
+  'debit alert',
+  'spent at',
+  'spent on',
   'paid to',
   'payment to',
-  'bill paid',
+  'payment of',
+  'transferred to',
   'sent to',
+  'purchase at',
+  'purchase of',
+  'bill paid',
+  'tx of',
+  'txn of',
+  'trxn of',
 ];
 
-const CREDIT_KEYWORDS = [
+/**
+ * **Past-tense, transaction-only credit verbs.** Same rule — only words
+ * that always indicate money moved IN. Plain "credit" / "received" are
+ * excluded because they collide with marketing copy ("Get instant credit",
+ * "We have received your application").
+ */
+const STRONG_CREDIT_KEYWORDS = [
   'credited',
-  'credit',
-  'received',
+  'has been credited',
+  'was credited',
+  'amount credited',
+  'credit alert',
   'deposited',
-  'refund',
-  'refunded',
-  'cashback',
-  'added to',
-  'transferred from',
-  'salary',
   'received from',
+  'received in',
+  'received an amount',
+  'has received',
+  'have received rs',
+  'have received pkr',
+  'have received inr',
+  'transferred from',
+  'refunded',
   'reversed to',
-  'incoming',
-  'remittance',
+  'added to your',
+  'cashback received',
+  'cashback of rs',
+  'cashback of pkr',
+  'salary credited',
+  'remittance received',
 ];
 
-/** Words that strongly suggest the message is a one-time-password / OTP. */
+/** Strong keywords combined — used by the gate. */
+const STRONG_KEYWORDS = [...STRONG_DEBIT_KEYWORDS, ...STRONG_CREDIT_KEYWORDS];
+
+/**
+ * Words/phrases that flag a one-time-password / authentication code. Kept
+ * narrow on purpose: generic security boilerplate ("do not share", "never
+ * disclose") is intentionally excluded because banks include those warnings
+ * in regular transaction confirmations too.
+ */
 const OTP_KEYWORDS = [
   'otp',
   'one-time password',
   'one time password',
+  'one time pin',
+  'one-time pin',
   'verification code',
   'verification pin',
   'security code',
@@ -85,19 +136,18 @@ const OTP_KEYWORDS = [
   'tac code',
   '2fa',
   'two-factor',
-  'do not share',
-  'do not disclose',
-  'never share',
-  'will never ask',
+  'two factor',
 ];
 
 /**
- * Words/phrases that indicate the SMS is purely promotional. Used to push the
- * classifier away from `TRANSACTION` for ambiguous cases.
+ * Words/phrases that indicate the SMS is purely promotional / marketing.
+ * Used as a *negative* signal — a message hitting any of these AND lacking
+ * a strong transaction keyword is rejected outright.
  */
-const PROMOTIONAL_KEYWORDS = [
+const PROMOTIONAL_INDICATORS = [
   'offer',
   'sale',
+  'mega sale',
   'discount',
   'voucher',
   'coupon',
@@ -107,9 +157,34 @@ const PROMOTIONAL_KEYWORDS = [
   'limited time',
   'hurry',
   't&c apply',
+  'tc apply',
   'click here',
-  'visit ',
+  'visit www',
+  'visit our website',
+  'visit https',
+  'visit http',
   'download our app',
+  'download the app',
+  'congratulations',
+  'congrats',
+  'you have won',
+  'you won',
+  'lucky draw',
+  'lottery',
+  'prize',
+  'apply now',
+  'avail now',
+  'redeem now',
+  'register now',
+  'subscribe now',
+  '% off',
+  '% cashback',
+  'win rs',
+  'win pkr',
+  'win inr',
+  'win up to',
+  'free gift',
+  'gift card',
 ];
 
 /** Words that flag a *failed* or *declined* transaction. */
@@ -138,44 +213,6 @@ const PENDING_KEYWORDS = [
 ];
 
 /**
- * Heuristic list of strings that strongly suggest the SMS is a financial
- * transaction. Used as the primary filter for `onlyTransactions: true`.
- */
-const TRANSACTION_INDICATORS = [
-  ...DEBIT_KEYWORDS,
-  ...CREDIT_KEYWORDS,
-  'a/c',
-  'acct',
-  'account',
-  'available bal',
-  'avail bal',
-  'avbl bal',
-  'avl bal',
-  'bal:',
-  'balance',
-  'upi',
-  'imps',
-  'neft',
-  'rtgs',
-  'pos',
-  'atm',
-  'card ending',
-  'card xx',
-  'wallet',
-  'jazzcash',
-  'easypaisa',
-  'sadapay',
-  'nayapay',
-  'bkash',
-  'nagad',
-  'paytm',
-  'phonepe',
-  'gpay',
-  'visa',
-  'mastercard',
-];
-
-/**
  * Channel detection — first match wins. Order matters: more specific rails
  * (UPI, IMPS) are checked before generic ones (CARD, ONLINE).
  */
@@ -187,9 +224,9 @@ const CHANNEL_RULES: Array<{ channel: TransactionChannel; pattern: RegExp }> = [
   { channel: 'ATM', pattern: /\b(atm|cash withdrawal)\b/i },
   { channel: 'POS', pattern: /\bpos\b|point[\s-]of[\s-]sale/i },
   { channel: 'CARD', pattern: /\b(card|debit\s*card|credit\s*card|visa|mastercard|amex|rupay)\b/i },
-  { channel: 'WALLET', pattern: /\b(wallet|jazzcash|easypaisa|sadapay|nayapay|bkash|nagad|paytm wallet|mobikwik|freecharge)\b/i },
+  { channel: 'WALLET', pattern: /\b(wallet|jazzcash|easypaisa|sadapay|nayapay|bkash|nagad|paytm wallet|mobikwik|freecharge|konnect|upaisa)\b/i },
   { channel: 'CHEQUE', pattern: /\b(cheque|check\s*no\.?|chq)\b/i },
-  { channel: 'BANK_TRANSFER', pattern: /\b(bank transfer|fund transfer|ift|iban|swift)\b/i },
+  { channel: 'BANK_TRANSFER', pattern: /\b(bank transfer|fund transfer|funds transfer|ift|iban|swift|raast|ibft)\b/i },
   { channel: 'ONLINE', pattern: /\b(online|e-commerce|ecom|web)\b/i },
 ];
 
@@ -259,6 +296,7 @@ const SENDER_BANK_REGISTRY: Array<{
   { code: 'JS', currency: 'PKR', tokens: ['js bank', 'jsbank'] },
   { code: 'DIB_PK', currency: 'PKR', tokens: ['dib pakistan', 'dubai islamic bank'] },
   { code: 'BANKISLAMI', currency: 'PKR', tokens: ['bankislami', 'islami bank'] },
+  { code: 'BOP', currency: 'PKR', tokens: ['bop', 'bank of punjab', 'digibop'] },
   // ── Pakistan — wallets ──────────────────────────────────────────────────
   { code: 'JAZZCASH', currency: 'PKR', tokens: ['jazzcash', 'jazz cash', 'jazz'] },
   { code: 'EASYPAISA', currency: 'PKR', tokens: ['easypaisa', 'easy paisa'] },
@@ -316,18 +354,31 @@ const SENDER_BANK_REGISTRY: Array<{
 // ---------------------------------------------------------------------------
 
 /**
+ * Currency-tagged amount detector — used by the strict gate. Matches a
+ * number that is *immediately* preceded or followed by a currency token,
+ * e.g. `Rs. 1,500`, `PKR 25,000`, `₹500`, `$12.34`, `1,500 PKR`,
+ * `Rs.500/-`, `Rs.1500/=`.
+ *
+ * Bare numbers (no currency word) deliberately do *not* match — that's the
+ * whole point of the gate.
+ */
+const CURRENCY_TAGGED_AMOUNT_REGEX =
+  /(?:rs\.?|pkr|inr|bdt|usd|eur|gbp|aed|dhs|sar|qar|omr|kwd|lkr|npr|mvr|₹|৳|\$|€|£)\s?[0-9][0-9,\s]*(?:\.[0-9]{1,2})?(?:\s?\/[\-=])?|[0-9][0-9,\s]*(?:\.[0-9]{1,2})?(?:\s?\/[\-=])?\s?(?:rs\.?|pkr|inr|bdt|usd|eur|gbp|aed|dhs|sar|qar|omr|kwd|lkr|npr|mvr)\b/i;
+
+/**
  * Captures an amount with optional currency prefix/suffix. Handles:
  *   - "Rs. 1,500.00", "PKR 25,000", "INR1500", "₹500", "$ 12.34"
  *   - "1500.50 PKR", "1,500 INR"
  *   - "Rs. 1,500/-" (Pakistani convention with trailing dash)
+ *   - "Rs.1500/=" (alternative trailing form)
  * Group 1 = leading currency token, group 2 = number, group 3 = trailing currency token.
  */
 const AMOUNT_REGEX =
-  /(?:(rs\.?|pkr|inr|bdt|usd|eur|gbp|aed|dhs|sar|qar|omr|kwd|lkr|npr|mvr|₹|৳|\$|€|£)\s?)?([0-9]{1,3}(?:[,\s][0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)(?:\s?\/\-)?(?:\s?(rs\.?|pkr|inr|bdt|usd|eur|gbp|aed|dhs|sar|qar|omr|kwd|lkr|npr|mvr))?/gi;
+  /(?:(rs\.?|pkr|inr|bdt|usd|eur|gbp|aed|dhs|sar|qar|omr|kwd|lkr|npr|mvr|₹|৳|\$|€|£)\s?)?([0-9]{1,3}(?:[,\s][0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)(?:\s?\/[\-=])?(?:\s?(rs\.?|pkr|inr|bdt|usd|eur|gbp|aed|dhs|sar|qar|omr|kwd|lkr|npr|mvr))?/gi;
 
-/** Account / card mask — "A/C XX1234", "card ending 1234", "acct *1234". */
+/** Account / card mask — "A/C XX1234", "card ending 1234", "acct *1234", "XXXX-1234". */
 const ACCOUNT_REGEX =
-  /(?:a\/c|acct|account|card(?:\s+ending)?|card\s+xx|debit\s+card|credit\s+card)[^a-z0-9]{0,4}([x*•·]{0,4}\s?\d{3,6})/i;
+  /(?:a\/c|acct|account|card(?:\s+ending)?|card\s+xx|debit\s+card|credit\s+card)[^a-z0-9]{0,4}([x*•·]{0,4}\s?-?\s?\d{3,6}(?:[-\s]?\d{3,6})?)/i;
 
 /** Transaction reference id. Tries common labels first, then a generic alphanumeric token. */
 const REFERENCE_REGEX =
@@ -335,7 +386,7 @@ const REFERENCE_REGEX =
 
 /** Available balance after the txn. */
 const BALANCE_REGEX =
-  /(?:avail(?:able)?\s+bal(?:ance)?|avl\s+bal|avbl\s+bal|bal(?:ance)?)\s*(?:is|:|\-)?\s*(?:rs\.?|pkr|inr|bdt|usd|aed|sar|₹|৳|\$)?\s*([0-9]{1,3}(?:[,\s][0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
+  /(?:avail(?:able)?\s+bal(?:ance)?|avl\s+bal|avbl\s+bal|new\s+balance|bal(?:ance)?)\s*(?:is|:|\-)?\s*(?:rs\.?|pkr|inr|bdt|usd|aed|sar|₹|৳|\$)?\s*([0-9]{1,3}(?:[,\s][0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i;
 
 /** Merchant after "at" / "to" / "from" up to a delimiter. */
 const MERCHANT_REGEX =
@@ -363,22 +414,37 @@ function normaliseAmount(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function detectType(body: string): TransactionType {
+/** True iff the body contains at least one strong, past-tense transaction verb. */
+function hasStrongTransactionSignal(body: string): boolean {
+  const lower = body.toLowerCase();
+  return STRONG_KEYWORDS.some((k) => lower.includes(k));
+}
+
+/** True iff the body contains a number that is *directly* attached to a currency token. */
+function hasCurrencyTaggedAmount(body: string): boolean {
+  return CURRENCY_TAGGED_AMOUNT_REGEX.test(body);
+}
+
+/**
+ * Determine direction (CREDIT / DEBIT) from the strong-keyword sets.
+ * Falls back to UNKNOWN only when there's an exact tie between credit and
+ * debit signals — extremely rare for real bank SMS.
+ */
+function detectStrongDirection(body: string): TransactionType {
   const lower = body.toLowerCase();
   let creditScore = 0;
   let debitScore = 0;
 
-  for (const kw of CREDIT_KEYWORDS) if (lower.includes(kw)) creditScore += 1;
-  for (const kw of DEBIT_KEYWORDS) if (lower.includes(kw)) debitScore += 1;
+  for (const kw of STRONG_CREDIT_KEYWORDS) if (lower.includes(kw)) creditScore += 1;
+  for (const kw of STRONG_DEBIT_KEYWORDS) if (lower.includes(kw)) debitScore += 1;
 
-  // Strong signals — explicit "credit alert" / "debit alert" headers.
+  // Header-style hints carry extra weight.
   if (/\bcredit\s+alert\b/i.test(body)) creditScore += 2;
   if (/\bdebit\s+alert\b/i.test(body)) debitScore += 2;
-
-  // "Refund of Rs. X" almost always means CREDIT, even when other words don't match.
   if (/\brefund\s+of\b/i.test(body)) creditScore += 2;
 
   if (creditScore === 0 && debitScore === 0) return 'UNKNOWN';
+  if (creditScore === debitScore) return 'UNKNOWN';
   return creditScore > debitScore ? 'CREDIT' : 'DEBIT';
 }
 
@@ -427,37 +493,23 @@ function detectCurrency(body: string, sender: string): string | null {
 
 /**
  * Pick the most plausible amount from the body. Strategy: collect every
- * number that is preceded or followed by a known currency token; if none
- * exist, fall back to the largest standalone number that has at least 3
- * digits (filters out "card ending 1234" style noise).
- *
- * Numbers that look like account masks, OTPs, dates, or phone numbers are
- * excluded — long digit runs (10+) and 4–6 digit codes following OTP-style
- * keywords get filtered out before scoring.
+ * number that is preceded or followed by a known currency token; the first
+ * such currency-tagged amount wins. Standalone numbers are deliberately
+ * ignored — the strict gate already required currency tagging upstream, so
+ * non-tagged numbers in the body are noise (account masks, ref ids, dates).
  */
 function detectAmount(body: string): { amount: number | null; currencyToken: string | null } {
   const matches = Array.from(body.matchAll(AMOUNT_REGEX));
-  let bestWithCurrency: { amount: number; token: string } | null = null;
-  let bestStandalone: number | null = null;
 
   for (const m of matches) {
     const token = (m[1] || m[3] || '').toLowerCase().trim();
     const amount = normaliseAmount(m[2]);
     if (amount === null) continue;
-
     // Skip absurdly long numbers — almost certainly an account or phone.
     if (m[2].replace(/[^0-9]/g, '').length > 12) continue;
-
-    if (token) {
-      // Prefer the first currency-tagged amount — it's almost always the txn amount.
-      if (!bestWithCurrency) bestWithCurrency = { amount, token };
-    } else if (amount >= 100 && (bestStandalone === null || amount > bestStandalone)) {
-      bestStandalone = amount;
-    }
+    if (token) return { amount, currencyToken: token };
   }
 
-  if (bestWithCurrency) return { amount: bestWithCurrency.amount, currencyToken: bestWithCurrency.token };
-  if (bestStandalone !== null) return { amount: bestStandalone, currencyToken: null };
   return { amount: null, currencyToken: null };
 }
 
@@ -486,38 +538,69 @@ function detectMerchant(body: string): string | null {
   return raw;
 }
 
+// ---------------------------------------------------------------------------
+// Classifiers (exported)
+// ---------------------------------------------------------------------------
+
 /**
- * Quick check: does the message even look like a transaction? Used as the
- * primary gate in `getRecentMessages({ onlyTransactions: true })`.
+ * Strict gate — true iff the body has BOTH a strong past-tense transaction
+ * verb AND a currency-tagged numeric amount. This is the single source of
+ * truth used by the parser; "any SMS with digits" no longer passes.
  */
 export function isLikelyTransactionSms(body: string): boolean {
-  const lower = body.toLowerCase();
-  return TRANSACTION_INDICATORS.some((kw) => lower.includes(kw));
+  if (!body || body.length < 10) return false;
+  if (!hasStrongTransactionSignal(body)) return false;
+  if (!hasCurrencyTaggedAmount(body)) return false;
+  return true;
 }
 
 /**
- * Returns `true` if the SMS body is overwhelmingly likely to be a one-time
- * password rather than a transaction alert. The check is intentionally
- * permissive on the OTP side — false positives here just mean the message
- * gets routed to the OTP bucket instead of the transaction one.
+ * Returns `true` if the SMS body is a one-time-password / 2FA code rather
+ * than a transaction confirmation.
+ *
+ * The check is deliberately *narrow*: a message is OTP only when it both
+ * (a) contains an OTP-specific label like "OTP", "verification code", "2FA",
+ * and (b) does NOT contain a strong past-tense transaction verb. Bank
+ * transaction SMS routinely include OTP-security boilerplate ("do not
+ * share OTP") — those are transactions, not OTPs.
  */
 export function isLikelyOtpSms(body: string): boolean {
   const lower = body.toLowerCase();
   if (!OTP_KEYWORDS.some((kw) => lower.includes(kw))) return false;
-  // Must contain at least one short numeric run that isn't an amount.
-  return /\b\d{4,8}\b/.test(body);
+  // Must contain a short numeric run (OTPs are 4–8 digits).
+  if (!/\b\d{4,8}\b/.test(body)) return false;
+  // If the body also has a strong transaction verb, treat it as a
+  // transaction confirmation that mentions OTP, not as an OTP itself.
+  if (hasStrongTransactionSignal(body)) return false;
+  return true;
+}
+
+/**
+ * Returns `true` when the body looks like a marketing / promotional SMS
+ * (offers, lucky draws, recharge nags, application reminders) AND lacks
+ * any strong transaction signal.
+ *
+ * "Get Rs. 100 cashback when you spend!" → `true` (promo, no past-tense verb)
+ * "Rs. 100 credited as cashback. Use code SAVE10 next time." → `false` (real txn)
+ */
+export function isLikelyPromotionalSms(body: string): boolean {
+  const lower = body.toLowerCase();
+  if (!PROMOTIONAL_INDICATORS.some((kw) => lower.includes(kw))) return false;
+  if (hasStrongTransactionSignal(body)) return false;
+  return true;
 }
 
 /**
  * Extract the OTP from a message body, when one is present. Returns `null`
- * when the SMS does not look like an OTP.
+ * when the SMS does not look like an OTP (including transaction
+ * confirmations that happen to include OTP-warning boilerplate).
  */
 export function extractOtp(raw: RawSmsMessage): ParsedOtp | null {
   if (!isLikelyOtpSms(raw.body)) return null;
 
   const m = OTP_REGEX.exec(raw.body);
   if (!m) {
-    // Fall back to the first 4–8 digit run when keyword matched but the
+    // Fall back to the first 4–8 digit run when the keyword matched but the
     // labelled regex didn't — common with terse OTP messages.
     const fallback = /\b(\d{4,8})\b/.exec(raw.body);
     if (!fallback) return null;
@@ -549,49 +632,56 @@ function parseValidity(body: string): number | null {
 }
 
 /**
- * Coarse classification of an SMS — useful for routing logic in the consumer
- * app (transaction → bookkeeping, OTP → autofill, promo → ignore).
+ * Coarse classification of an SMS. The order matters:
  *
- * The check order is deliberate: OTPs win first (they're easy to identify and
- * users care most about them), then transactions, then promos.
+ *   1. OTP wins first (excluding transaction confirmations).
+ *   2. Strict transaction gate.
+ *   3. Promotional gate.
+ *   4. Everything else → OTHER.
  */
 export function classifySms(raw: RawSmsMessage): SmsCategory {
   if (isLikelyOtpSms(raw.body)) return 'OTP';
   if (isLikelyTransactionSms(raw.body)) return 'TRANSACTION';
-
-  const lower = raw.body.toLowerCase();
-  if (PROMOTIONAL_KEYWORDS.some((kw) => lower.includes(kw))) return 'PROMOTIONAL';
+  if (isLikelyPromotionalSms(raw.body)) return 'PROMOTIONAL';
   return 'OTHER';
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public parser
 // ---------------------------------------------------------------------------
 
 /**
  * Run the built-in heuristic parser on a single SMS.
  *
- * Returns `null` only when the message clearly is not a transaction (no
- * indicator keywords AND no detectable amount) or when it is an OTP.
- * Otherwise always returns a `ParsedTransaction` — inspect `confidence` to
- * gauge reliability.
+ * Returns `null` unless the body satisfies the strict gate (strong
+ * past-tense verb + currency-tagged amount). Promotional and OTP messages
+ * are also rejected. Callers that want every SMS — including non-financial
+ * ones — should subscribe via `addSmsListener` and inspect `event.category`
+ * directly instead of calling this function.
  */
 export function parseTransactionSms(raw: RawSmsMessage): ParsedTransaction | null {
   const { body, address } = raw;
   if (!body || body.length < 10) return null;
 
-  // OTPs are never transactions, even if they happen to mention an amount
-  // (some banks send "Use OTP 123456 to authorise Rs. 5,000").
+  // 1. OTPs short-circuit.
   if (isLikelyOtpSms(body)) return null;
 
-  const looksLikeTxn = isLikelyTransactionSms(body);
+  // 2. Pure promotional content short-circuits.
+  if (isLikelyPromotionalSms(body)) return null;
+
+  // 3. Strict gate: must have BOTH a strong directional verb AND a
+  //    currency-tagged amount. This is the single rule that prevents
+  //    "any SMS with digits" from leaking through.
+  if (!hasStrongTransactionSignal(body)) return null;
+
   const { amount, currencyToken } = detectAmount(body);
+  if (amount === null || currencyToken === null) return null;
 
-  if (!looksLikeTxn && amount === null) return null;
-
-  const type = detectType(body);
-  const currency = detectCurrency(body, address) ??
-    (currencyToken ? CURRENCY_MAP[currencyToken] ?? currencyToken.toUpperCase() : null);
+  // From here on we know the message is a transaction; extract the rest.
+  const type = detectStrongDirection(body);
+  const currency =
+    detectCurrency(body, address) ??
+    (CURRENCY_MAP[currencyToken] ?? currencyToken.toUpperCase());
   const account = detectAccount(body);
   const reference = detectReference(body);
   const balance = detectBalance(body);
@@ -600,11 +690,9 @@ export function parseTransactionSms(raw: RawSmsMessage): ParsedTransaction | nul
   const status = detectStatus(body);
   const bankCode = normaliseBankCode(address);
 
-  // Confidence model: 0.0 baseline. Positive signals add, negative signals
-  // subtract. Capped at 0.95 — the parser is a heuristic, not an oracle.
-  let confidence = 0;
-  if (looksLikeTxn) confidence += 0.25;
-  if (amount !== null) confidence += 0.25;
+  // Confidence model. Base 0.5 because the strict gate is already passed.
+  // Bonus signals refine the score upward.
+  let confidence = 0.5;
   if (type !== 'UNKNOWN') confidence += 0.15;
   if (currency) confidence += 0.1;
   if (bankCode) confidence += 0.1;
@@ -613,8 +701,7 @@ export function parseTransactionSms(raw: RawSmsMessage): ParsedTransaction | nul
   if (balance !== null) confidence += 0.05;
   if (channel !== 'UNKNOWN') confidence += 0.05;
 
-  // Negative signal: failed transactions still get a confidence score, but
-  // we cap them slightly below "definitely happened" levels.
+  // Failed / pending transactions still parse, but at lower confidence.
   if (status === 'FAILED') confidence = Math.min(confidence, 0.7);
   if (status === 'PENDING') confidence = Math.min(confidence, 0.8);
 

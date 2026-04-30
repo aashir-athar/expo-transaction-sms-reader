@@ -17,6 +17,7 @@ import {
   classifySms,
   extractOtp,
   isLikelyOtpSms,
+  isLikelyPromotionalSms,
   isLikelyTransactionSms,
   normaliseBankCode,
   parseTransactionSms,
@@ -44,6 +45,7 @@ export {
   classifySms,
   extractOtp,
   isLikelyOtpSms,
+  isLikelyPromotionalSms,
   isLikelyTransactionSms,
   normaliseBankCode,
   parseTransactionSms,
@@ -336,10 +338,27 @@ export async function getRecentMessages(
   const allowlist = normaliseSenderList(options.senderAllowlist);
 
   // The native side takes a list of indicator keywords so it can pre-filter
-  // at the SQL layer when `onlyTransactions` is true. We pass the same list
-  // the JS parser uses to keep the behaviour consistent.
+  // at the SQL layer when `onlyTransactions` is true. We pass *strong*
+  // past-tense verbs only — broader words like "balance" / "wallet" /
+  // "credit" are too lenient and pull in promo SMS at the SQL layer, which
+  // are then rejected by the JS parser anyway. Keeping the hint tight saves
+  // I/O and keeps behaviour consistent with `parseTransactionSms`.
   const onlyTransactionsHint = options.onlyTransactions
-    ? ['debited', 'credited', 'debit', 'credit', 'a/c', 'upi', 'imps', 'bal:', 'balance', 'wallet', 'spent', 'paid']
+    ? [
+        'debited',
+        'credited',
+        'deducted',
+        'withdrawn',
+        'transferred',
+        'received from',
+        'received in',
+        'deposited',
+        'refunded',
+        'has been charged',
+        'was charged',
+        'credit alert',
+        'debit alert',
+      ]
     : [];
 
   const rows = await NativeModule.getRecentMessages({ limit, sinceTimestamp, onlyTransactionsHint });
