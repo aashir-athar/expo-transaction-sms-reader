@@ -1,7 +1,7 @@
 /**
- * Web/iOS no-op fallback. Every method either rejects with
+ * Web / iOS no-op fallback. Every method either rejects with
  * `UnsupportedPlatformError` or returns a sane default. Keeping a stub here
- * lets consumers build for web/iOS without a Metro/EAS error.
+ * lets consumers build for web / iOS without a Metro / EAS error.
  */
 
 import { NativeModule } from 'expo';
@@ -23,6 +23,9 @@ class ExpoTransactionSmsReaderModuleStub extends NativeModule<ExpoTransactionSms
   }
   async requestPermissionsAsync(): Promise<SmsPermissionStatus> {
     return 'denied';
+  }
+  openAppSettings(): void {
+    /* no-op */
   }
   async startListening(): Promise<void> {
     throw PLATFORM_ERROR;

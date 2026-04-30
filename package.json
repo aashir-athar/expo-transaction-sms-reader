@@ -1,7 +1,7 @@
 {
   "name": "expo-transaction-sms-reader",
-  "version": "0.1.0",
-  "description": "Android-only Expo Module (SDK 54) that listens to incoming SMS, intelligently parses banking & wallet transaction messages, and exposes a typed real-time event API for fintech, budgeting, and expense-tracking apps.",
+  "version": "0.2.0",
+  "description": "Android-only Expo Module (SDK 54) for fintech apps: listens to incoming SMS, classifies them (transaction / OTP / promo), parses banking & wallet alerts across 60+ South-Asian, Indian, Bangladeshi and GCC institutions, extracts OTPs, and exposes aggregation utilities — all behind a fully-typed real-time API.",
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "sideEffects": false,

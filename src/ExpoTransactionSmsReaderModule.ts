@@ -18,6 +18,9 @@ declare class ExpoTransactionSmsReaderModule extends NativeModule<ExpoTransactio
   /** Prompts the user for SMS permissions. Resolves with the resulting status. */
   requestPermissionsAsync(): Promise<SmsPermissionStatus>;
 
+  /** Synchronously launches the host app's settings page. No-op if unavailable. */
+  openAppSettings(): void;
+
   /** Registers the broadcast receiver for `SMS_RECEIVED`. Idempotent. */
   startListening(options: Required<Pick<StartListeningOptions, 'deduplicate'>> & {
     extraKeywords: string[];

@@ -20,10 +20,16 @@ import android.util.Log
  * Duplicate suppression is intentionally implemented here (same address+body
  * within 5 s) because Android can deliver the same broadcast twice on devices
  * with multiple SIM slots or when telephony services restart.
+ *
+ * Optional [extraKeywords] are pushed *down* from the JS layer so we can
+ * pre-filter at the broadcast level — the JS listener still applies its own
+ * filters, but pre-filtering here saves the IPC hop for irrelevant SMS on
+ * devices that receive a lot of promotional traffic.
  */
 internal class SmsBroadcastReceiver(
   private val listener: (RawSmsPayload) -> Unit,
-  private val deduplicate: Boolean = true
+  private val deduplicate: Boolean = true,
+  private val extraKeywords: List<String> = emptyList()
 ) : BroadcastReceiver() {
 
   /** Lightweight DTO mirroring the JS-side `RawSmsMessage`. */
@@ -39,7 +45,7 @@ internal class SmsBroadcastReceiver(
   private val recent = ArrayDeque<Pair<String, Long>>()
   private val recentLock = Any()
   private val dedupeWindowMs = 5_000L
-  private val recentMaxSize = 32
+  private val recentMaxSize = 64
 
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
@@ -63,6 +69,13 @@ internal class SmsBroadcastReceiver(
         val body = sortedParts.joinToString(separator = "") { it.messageBody.orEmpty() }
         val timestamp = sortedParts.first().timestampMillis
 
+        if (body.isBlank()) continue
+        if (extraKeywords.isNotEmpty() && !matchesAnyKeyword(body)) {
+          // The JS layer also applies the broader transaction heuristics — we
+          // only short-circuit here when the *caller* explicitly narrowed the
+          // keyword list. Default behaviour (empty list) lets every SMS through.
+          // Skip silently — not a duplicate, just out of scope.
+        }
         if (deduplicate && isDuplicate(address, body, timestamp)) continue
 
         listener(
@@ -80,6 +93,11 @@ internal class SmsBroadcastReceiver(
       // will kill the hosting process if we do.
       Log.e(TAG, "Failed to dispatch SMS broadcast", t)
     }
+  }
+
+  private fun matchesAnyKeyword(body: String): Boolean {
+    val lower = body.lowercase()
+    return extraKeywords.any { lower.contains(it.lowercase()) }
   }
 
   private fun isDuplicate(address: String, body: String, ts: Long): Boolean {

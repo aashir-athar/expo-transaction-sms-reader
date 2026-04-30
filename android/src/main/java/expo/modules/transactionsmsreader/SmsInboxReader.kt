@@ -2,7 +2,6 @@ package expo.modules.transactionsmsreader
 
 import android.content.Context
 import android.database.Cursor
-import android.net.Uri
 import android.provider.Telephony
 import android.util.Log
 
@@ -10,10 +9,18 @@ import android.util.Log
  * Reads recent SMS from the system content provider. All work happens
  * synchronously on the calling coroutine — [ExpoTransactionSmsReaderModule]
  * dispatches it to the IO dispatcher.
+ *
+ * The inbox can be huge on long-lived devices, so the reader is careful to:
+ *   1. Apply the cheap `DATE > ?` filter at the SQL level, before reading.
+ *   2. Cap `LIMIT` so we never iterate the whole table even when a wide
+ *      keyword filter matches few rows.
+ *   3. Post-filter in Kotlin for keyword matches — vendor SQLite collation
+ *      varies, so we lower-case in JVM land where the behaviour is stable.
  */
 internal object SmsInboxReader {
 
   private const val TAG = "ExpoTxnSmsReader"
+  private const val MAX_OVERFETCH = 2_000
 
   // We deliberately exclude the `address` column from the selection so we can
   // match it case-insensitively in Kotlin — vendor SQLite builds vary on
@@ -32,6 +39,8 @@ internal object SmsInboxReader {
     sinceTimestamp: Long,
     onlyTransactionsHint: List<String>
   ): List<SmsBroadcastReceiver.RawSmsPayload> {
+    if (limit <= 0) return emptyList()
+
     val results = ArrayList<SmsBroadcastReceiver.RawSmsPayload>(limit.coerceAtMost(64))
 
     val selection = StringBuilder()
@@ -42,9 +51,15 @@ internal object SmsInboxReader {
     }
 
     // We over-fetch by a small factor when filtering by keyword so we still
-    // return `limit` matching rows after post-filtering.
-    val sqlLimit = if (onlyTransactionsHint.isNotEmpty()) (limit * 4).coerceAtMost(2000) else limit
+    // return `limit` matching rows after post-filtering. Capped at MAX_OVERFETCH
+    // to bound memory on devices with very large inboxes.
+    val sqlLimit = if (onlyTransactionsHint.isNotEmpty()) {
+      (limit * 4).coerceAtMost(MAX_OVERFETCH)
+    } else {
+      limit
+    }
     val sortOrder = "${Telephony.Sms.Inbox.DATE} DESC LIMIT $sqlLimit"
+    val lowerKeywords = onlyTransactionsHint.map { it.lowercase() }
 
     val cursor: Cursor? = try {
       context.contentResolver.query(
@@ -72,7 +87,7 @@ internal object SmsInboxReader {
       while (c.moveToNext() && results.size < limit) {
         val body = if (bodyIdx >= 0) c.getString(bodyIdx).orEmpty() else ""
         if (body.isEmpty()) continue
-        if (onlyTransactionsHint.isNotEmpty() && !matchesAny(body, onlyTransactionsHint)) continue
+        if (lowerKeywords.isNotEmpty() && !matchesAny(body, lowerKeywords)) continue
 
         results.add(
           SmsBroadcastReceiver.RawSmsPayload(
@@ -92,8 +107,8 @@ internal object SmsInboxReader {
     return results
   }
 
-  private fun matchesAny(body: String, keywords: List<String>): Boolean {
+  private fun matchesAny(body: String, lowerKeywords: List<String>): Boolean {
     val lower = body.lowercase()
-    return keywords.any { lower.contains(it) }
+    return lowerKeywords.any { lower.contains(it) }
   }
 }

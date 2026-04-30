@@ -1,10 +1,10 @@
 <div align="center">
 
-# 📩💸 expo-transaction-sms-reader
+# expo-transaction-sms-reader
 
 ### Real-time **banking & wallet SMS** intelligence for Expo SDK 54 — Android-only.
 
-Listen to incoming SMS in real-time, intelligently parse **banking, mobile-wallet, UPI and credit-card** notifications, and surface clean, typed transaction objects — built for **fintech, budgeting, and expense-tracking** apps in **Pakistan, India, Bangladesh** and beyond.
+Listen to incoming SMS in real-time, intelligently parse **banking, mobile-wallet, UPI, NEFT, IMPS, RTGS, ATM, POS and credit-card** notifications, classify each message (`TRANSACTION` / `OTP` / `PROMOTIONAL` / `OTHER`), extract OTPs for autofill, and aggregate everything into clean, typed objects — built for **fintech, budgeting, expense-tracking, and digital-wallet** apps in **Pakistan, India, Bangladesh, the GCC** and beyond.
 
 <br />
 
@@ -19,107 +19,136 @@ Listen to incoming SMS in real-time, intelligently parse **banking, mobile-walle
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](#-contributing)
 
 ```
-SMS arrives  ─►  BroadcastReceiver  ─►  Parser  ─►  Typed Transaction  ─►  Your UI
-                                          │
-                                          └─ DEBIT · PKR 1,500.00 · ****1234 · ref TXN9823 · 0.85
+SMS arrives  ─►  BroadcastReceiver  ─►  Classifier  ─►  Parser  ─►  Typed Transaction  ─►  Your UI
+                                            │              │
+                                            │              └─ DEBIT · PKR 1,500.00 · UPI · ****1234 · ref TXN9823 · 0.95
+                                            │
+                                            └─ TRANSACTION / OTP / PROMOTIONAL / OTHER
 ```
 
 </div>
 
 ---
 
-## 📑 Table of contents
+## Table of contents
 
-- [Why this exists](#-why-this-exists)
-- [Features](#-features)
-- [Platform support](#-platform-support)
-- [Installation](#-installation)
-- [Configuration](#%EF%B8%8F-configuration)
-- [Quick start](#-quick-start)
-- [Complete example](#-complete-example)
-- [API reference](#-api-reference)
+- [Why this exists](#why-this-exists)
+- [Features](#features)
+- [Platform support](#platform-support)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Quick start](#quick-start)
+- [Complete example](#complete-example)
+- [API reference](#api-reference)
   - [Permissions](#permissions)
-  - [Listening to live SMS](#listening-to-live-sms)
-  - [Reading the inbox](#reading-the-inbox)
+  - [Listening](#listening)
+  - [Inbox query](#inbox-query)
+  - [Parsing](#parsing)
+  - [OTP detection](#otp-detection)
+  - [Aggregation utilities](#aggregation-utilities)
   - [Custom parsers](#custom-parsers)
-  - [Pure parser utilities](#pure-parser-utilities)
-- [Common patterns & recipes](#-common-patterns--recipes)
-- [Confidence score guide](#-confidence-score-guide)
-- [Type reference](#-type-reference)
-- [Example output](#-example-output)
-- [Platform safety (cross-platform builds)](#-platform-safety-cross-platform-builds)
-- [Permissions & Google Play policy](#-permissions--google-play-policy)
-- [Performance & battery](#-performance--battery)
-- [Troubleshooting](#-troubleshooting)
-- [Contributing](#-contributing)
-- [Roadmap](#%EF%B8%8F-roadmap)
-- [License](#-license)
+  - [Errors](#errors)
+- [Supported banks & wallets](#supported-banks--wallets)
+- [How the parser works](#how-the-parser-works)
+- [Confidence model](#confidence-model)
+- [FAQ & troubleshooting](#faq--troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
-## 💡 Why this exists
+## Why this exists
 
-Most fintech, budgeting, and expense-tracking apps in **South Asia** rely on parsing transaction SMS to give users a real-time picture of their money — banks here send SMS for every transaction, but few expose APIs.
+Most "SMS reader" packages stop at giving you the raw message. That's the easy 10%. The hard 90% is turning **"Rs. 1,500.00 debited from a/c xx1234 via UPI/HDFCBK; UPI Ref 412345678; Avbl Bal: Rs. 23,450.00"** into:
 
-The existing options are either **abandoned** (`react-native-android-sms-listener` — last published 2018), **bare React Native only** (no Expo support), or **don't parse anything** (just hand you the raw body). This package bundles everything you actually need: the listener, the inbox query, a heuristic parser tuned for South-Asian formats, and a Config Plugin that wires the manifest for you — built on the modern **Expo Modules API** for SDK 54.
+```ts
+{
+  type: 'DEBIT',
+  amount: 1500,
+  currency: 'PKR',
+  channel: 'UPI',
+  status: 'SUCCESS',
+  bankCode: 'HDFC',
+  account: '****1234',
+  balance: 23450,
+  reference: '412345678',
+  confidence: 0.95,
+}
+```
 
----
+This package does that — across **60+ South-Asian, Indian, Bangladeshi, and GCC institutions** — in pure TypeScript so you can re-run it on any SMS string, anywhere, without rebuilding your native module.
 
-## ✨ Features
+It also does the parts everyone gets wrong:
 
-- 📡 **Live SMS listening** — runtime-registered `BroadcastReceiver` for `SMS_RECEIVED`, no static manifest declaration (avoids Play Store SMS-policy review for *the module itself*).
-- 🧠 **Heuristic transaction parser** — extracts type, amount, currency, sender, account mask, reference, balance, merchant, plus a confidence score in `[0, 1]`.
-- 🇵🇰🇮🇳🇧🇩 **Tuned for South-Asian banks & wallets** — HBL, UBL, MCB, Meezan, Allied, Askari, Faysal, JazzCash, Easypaisa, SadaPay, NayaPay, HDFC, ICICI, SBI, Axis, Kotak, Paytm, PhonePe, GPay, BHIM, bKash, Nagad, Rocket, …
-- 💱 **Multi-currency** — PKR, INR, BDT, USD, EUR, GBP, AED, SAR — with sender-based disambiguation for the ambiguous "Rs." prefix.
-- 🧩 **Pluggable parsers** — register bank-specific overrides without rebuilding the native module.
-- 📜 **Inbox query** — pull historical SMS via the system content provider, with optional transaction-only filtering at the SQL layer.
-- 🔐 **Permission helpers** — `getPermissionStatusAsync` + `requestPermissionsAsync` first-class.
-- 🛡️ **Privacy-conscious** — nothing is persisted by the module; all parsing happens locally.
-- 🧱 **Pure Expo Modules API** — Kotlin native, fully typed TS surface, ships a Config Plugin.
-- 🚦 **Cross-platform safe** — imports cleanly on iOS / web; runtime methods either no-op or throw `UnsupportedPlatformError`.
-- 🪶 **Tiny footprint** — no extra runtime dependencies beyond `expo-modules-core`; coroutines for off-main-thread inbox reads.
-
----
-
-## 📱 Platform support
-
-| Platform | Status                                                  |
-|----------|---------------------------------------------------------|
-| Android  | ✅ Fully supported (API 24+, tested on API 24 → 35)      |
-| iOS      | ❌ **Not supported** — Apple does not allow SMS reading  |
-| Web      | ❌ Not supported (no SMS APIs in the browser)            |
-
-> **iOS is intentionally a no-op stub.** The package can still be imported on iOS builds — every method either resolves to a sane default or throws `UnsupportedPlatformError`. See [Platform safety](#-platform-safety-cross-platform-builds).
+- **OTP messages are excluded from transactions** (and surfaced via a separate API for autofill).
+- **Failed / pending / reversed transactions are flagged** rather than counted as completed.
+- **Currencies are disambiguated** by sender id (so "Rs" from `HDFCBK` is INR but from `HBL` is PKR).
+- **Listeners are ref-counted** — multiple subscribers don't fight over the broadcast receiver.
 
 ---
 
-## 📦 Installation
+## Features
+
+- **Live SMS listener** — `BroadcastReceiver` registered at runtime (no `AndroidManifest`-declared receivers, so no Play Store SMS-policy review for that reason).
+- **Inbox query** — read recent SMS from the system content provider, with date / keyword / sender / confidence filters.
+- **Smart classifier** — every SMS is bucketed into `TRANSACTION`, `OTP`, `PROMOTIONAL`, or `OTHER`.
+- **OTP extraction** — pull the digits out for autofill, with validity-window detection.
+- **Heuristic transaction parser** — covers UPI, IMPS, NEFT, RTGS, ATM, POS, cards, wallets, cheques, online.
+- **60+ banks & wallets recognised** — see [Supported banks & wallets](#supported-banks--wallets).
+- **Channel detection** — `UPI` / `IMPS` / `NEFT` / `RTGS` / `CARD` / `ATM` / `POS` / `WALLET` / `BANK_TRANSFER` / `CHEQUE` / `ONLINE`.
+- **Status detection** — `SUCCESS` / `PENDING` / `FAILED` / `UNKNOWN`.
+- **Currency disambiguation** — sender registry resolves "Rs" between PKR / INR / LKR / NPR.
+- **Aggregation utilities** — `summarizeTransactions`, `groupTransactions`, `filterByDateRange`, `formatAmount`, `signedAmount`.
+- **Custom parsers** — register your own first-pass parser for bank-specific formats.
+- **Permission helpers** — `granted` / `denied` / `undetermined` / `blocked` states + one-tap `openAppSettings`.
+- **Ref-counted listener** — multiple `addSmsListener` calls share a single native receiver; the receiver detaches when the last subscription is removed.
+- **Safe iOS / web stubs** — every method becomes a typed no-op so you can build cross-platform without conditionals everywhere.
+- **Strict TypeScript** — `ParsedTransaction`, `RawSmsMessage`, `SmsCategory`, `TransactionChannel`, `TransactionStatus`, `TransactionSummary`, `ParsedOtp`, custom-parser type, error classes.
+
+---
+
+## Platform support
+
+| Platform   | Status                                                         |
+| ---------- | -------------------------------------------------------------- |
+| Android 7+ | **Full support** (SDK 24+, tested on SDK 26 / 33 / 34 / 35).   |
+| iOS        | No-op stub — every method returns sane defaults / throws `UnsupportedPlatformError` where relevant. |
+| Web        | Same no-op stub.                                               |
+
+iOS *cannot* read SMS by design — Apple does not expose any API for it, system-wide. There is no plan to add iOS support; this is a hardware-OS limitation, not a TODO.
+
+---
+
+## Installation
 
 ```bash
 npx expo install expo-transaction-sms-reader
 ```
 
-Then **prebuild and rebuild** the native project — this package ships native Kotlin so it cannot run inside **Expo Go**. You need a custom dev client.
+Or with raw npm/yarn/pnpm:
 
 ```bash
-npx expo prebuild --clean
+npm  install expo-transaction-sms-reader
+yarn add     expo-transaction-sms-reader
+pnpm add     expo-transaction-sms-reader
+```
+
+> Requires **Expo SDK 54** with the new architecture enabled (the default since SDK 51). Also requires a **dev client** — this is a native module, not Expo Go.
+
+After install:
+
+```bash
+npx expo prebuild
 npx expo run:android
 ```
 
-> 💡 **EAS users:** add the package, commit, and the next `eas build --profile development --platform android` will pick it up automatically. No further wiring needed.
-
-### Requirements
-
-- Expo SDK **54** or newer
-- React Native **0.81+** (bundled with SDK 54)
-- Android **API 24+** (Android 7.0 Nougat)
-- A **physical Android device** for end-to-end testing — emulators don't deliver real SMS
-
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-Add the bundled **Config Plugin** to your `app.json` / `app.config.ts`. It injects the required Android permissions (`READ_SMS`, `RECEIVE_SMS`) into your merged manifest at prebuild time.
+### 1. Register the config plugin
+
+In `app.json` / `app.config.ts`:
 
 ```json
 {
@@ -129,647 +158,609 @@ Add the bundled **Config Plugin** to your `app.json` / `app.config.ts`. It injec
 }
 ```
 
-If your app already declares the SMS permissions itself, opt out with the `skip` flag:
+This adds `READ_SMS` and `RECEIVE_SMS` to your merged `AndroidManifest.xml`.
 
-```json
+### 2. Optional plugin options
+
+```jsonc
 {
-  "expo": {
-    "plugins": [
-      ["expo-transaction-sms-reader", { "android": { "skip": true } }]
-    ]
-  }
+  "plugins": [
+    ["expo-transaction-sms-reader", {
+      "android": {
+        // Skip permission injection entirely (e.g. you declare them yourself).
+        "skip": false,
+        // Or fine-grained — disable one of the two permissions.
+        "permissions": { "read": true, "receive": true }
+      }
+    }]
+  ]
 }
 ```
 
-Re-prebuild after adding the plugin:
+| Option                            | Default | Effect                                                                       |
+| --------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `android.skip`                    | `false` | Skip injecting *both* permissions. Use when the host app declares them itself. |
+| `android.permissions.read`        | `true`  | Inject `READ_SMS`. Disable if you only want the live listener (no inbox).    |
+| `android.permissions.receive`     | `true`  | Inject `RECEIVE_SMS`. Disable if you only want to query the inbox.           |
 
-```bash
-npx expo prebuild --clean
-```
+### 3. Google Play Store policy
 
-> ⚠️ **Heads-up:** Apps requesting `READ_SMS` / `RECEIVE_SMS` need approval through Google's [Permissions Declaration form](https://support.google.com/googleplay/android-developer/answer/10208820). This is a release-blocker, not a code issue — see [Permissions & Google Play policy](#-permissions--google-play-policy).
+> **Important:** Apps requesting `READ_SMS` / `RECEIVE_SMS` must comply with Google's [SMS / Call Log Permissions Policy](https://support.google.com/googleplay/android-developer/answer/10208820). Expect a permissions-declaration form during review. The receiver in this package is **registered at runtime**, not in the manifest — that avoids the *separate* "default-handler-only" review for statically-declared SMS receivers.
 
 ---
 
-## 🚀 Quick start
+## Quick start
 
-```tsx
+```ts
 import {
-  requestPermissionsAsync,
+  ensurePermissionsAsync,
   addSmsListener,
 } from 'expo-transaction-sms-reader';
 
-await requestPermissionsAsync();
+async function start() {
+  const status = await ensurePermissionsAsync();
+  if (status !== 'granted') return;
 
-const sub = addSmsListener(({ raw, transaction }) => {
-  if (transaction && transaction.confidence >= 0.6) {
+  const sub = addSmsListener(({ raw, transaction, category }) => {
+    if (category !== 'TRANSACTION' || !transaction) return;
     console.log(`${transaction.type} ${transaction.currency} ${transaction.amount}`);
-  }
-});
+  });
 
-// later — clean up
-sub.remove();
+  // …later
+  // sub.remove();
+}
 ```
 
-That's it. The native receiver is started lazily on the first listener and torn down when the last subscription is removed.
+That's it. Every banking SMS now flows through your callback as a typed object.
 
 ---
 
-## 📘 Complete example
-
-A production-shaped React Native screen — handles permission flow, denied / "don't ask again" cases, inbox backfill on first launch, and live updates.
+## Complete example
 
 ```tsx
-import { useEffect, useState, useCallback } from 'react';
-import {
-  Alert,
-  Button,
-  FlatList,
-  Linking,
-  SafeAreaView,
-  Text,
-  View,
-} from 'react-native';
+import { useEffect, useState } from 'react';
+import { Button, FlatList, Text, View } from 'react-native';
 import {
   addSmsListener,
-  getPermissionStatusAsync,
+  ensurePermissionsAsync,
+  formatAmount,
   getRecentMessages,
-  requestPermissionsAsync,
+  openAppSettings,
+  summarizeTransactions,
   type ParsedTransaction,
-  type SmsPermissionStatus,
 } from 'expo-transaction-sms-reader';
 
 export default function TransactionsScreen() {
-  const [status, setStatus] = useState<SmsPermissionStatus>('undetermined');
   const [txns, setTxns] = useState<ParsedTransaction[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [permStatus, setPermStatus] = useState<string>('undetermined');
 
-  // 1. Resolve current permission status on mount.
   useEffect(() => {
-    getPermissionStatusAsync().then(setStatus);
-  }, []);
+    let sub: { remove: () => void } | undefined;
 
-  // 2. Permission flow with graceful fallback to system settings.
-  const requestPermission = useCallback(async () => {
-    const next = await requestPermissionsAsync();
-    setStatus(next);
-    if (next !== 'granted') {
-      Alert.alert(
-        'SMS access needed',
-        'We use SMS to detect your transactions automatically. Open settings to grant access.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open settings', onPress: () => Linking.openSettings() },
-        ],
+    (async () => {
+      const status = await ensurePermissionsAsync();
+      setPermStatus(status);
+      if (status !== 'granted') return;
+
+      // Backfill from the inbox (last 30 days).
+      const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const initial = await getRecentMessages({
+        limit: 200,
+        sinceTimestamp: since,
+        onlyTransactions: true,
+        minConfidence: 0.5,
+      });
+      setTxns(initial.map((r) => r.transaction!).filter(Boolean));
+
+      // Subscribe to live updates.
+      sub = addSmsListener(
+        ({ transaction }) => {
+          if (transaction && transaction.confidence >= 0.5) {
+            setTxns((prev) => [transaction, ...prev]);
+          }
+        },
+        { ignoreOtp: true, minConfidence: 0.5 }
       );
-    }
+    })();
+
+    return () => sub?.remove();
   }, []);
 
-  // 3. Backfill the inbox once permission is granted.
-  useEffect(() => {
-    if (status !== 'granted') return;
-    setLoading(true);
-    getRecentMessages({ limit: 200, onlyTransactions: true })
-      .then((rows) => {
-        setTxns(
-          rows
-            .map((r) => r.transaction)
-            .filter((t): t is ParsedTransaction => t !== null && t.confidence >= 0.5),
-        );
-      })
-      .finally(() => setLoading(false));
-  }, [status]);
+  const summary = summarizeTransactions(txns);
 
-  // 4. Subscribe to live SMS. The receiver auto-starts and auto-stops with the listener.
-  useEffect(() => {
-    if (status !== 'granted') return;
-
-    const sub = addSmsListener(
-      ({ transaction }) => {
-        if (transaction && transaction.confidence >= 0.5) {
-          setTxns((prev) => [transaction, ...prev]);
-        }
-      },
-      { minConfidence: 0.4, deduplicate: true },
-    );
-
-    return () => sub.remove();
-  }, [status]);
-
-  if (status !== 'granted') {
+  if (permStatus === 'blocked') {
     return (
-      <SafeAreaView style={{ flex: 1, padding: 24, justifyContent: 'center' }}>
-        <Text style={{ fontSize: 18, marginBottom: 16 }}>
-          SMS permission: {status}
-        </Text>
-        <Button title="Grant SMS access" onPress={requestPermission} />
-      </SafeAreaView>
+      <View>
+        <Text>SMS permission blocked. Please enable it in settings.</Text>
+        <Button title="Open settings" onPress={openAppSettings} />
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <View>
+      <Text>Net: {formatAmount({ amount: summary.net, currency: 'PKR' })}</Text>
+      <Text>Credits: {summary.credit}  ·  Debits: {summary.debit}</Text>
+
       <FlatList
         data={txns}
-        keyExtractor={(t, i) => `${t.timestamp}-${t.reference ?? i}`}
-        ListHeaderComponent={
-          loading ? <Text style={{ padding: 16 }}>Loading inbox…</Text> : null
-        }
+        keyExtractor={(t, i) => `${t.timestamp}-${i}`}
         renderItem={({ item }) => (
-          <View style={{ padding: 16, borderBottomWidth: 1, borderColor: '#eee' }}>
-            <Text style={{ fontSize: 16, fontWeight: '600' }}>
-              {item.type === 'CREDIT' ? '+' : '−'} {item.currency ?? ''} {item.amount?.toFixed(2)}
-            </Text>
-            <Text style={{ color: '#444' }}>
-              {item.sender}{item.merchant ? ` · ${item.merchant}` : ''}
-            </Text>
-            <Text style={{ color: '#888', fontSize: 12 }}>
-              {item.account ?? '—'} · ref {item.reference ?? '—'} · conf {item.confidence.toFixed(2)}
-            </Text>
+          <View>
+            <Text>{item.type} · {formatAmount(item)} · {item.channel}</Text>
+            <Text>{item.bankCode ?? item.sender} · {item.merchant ?? ''}</Text>
           </View>
         )}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 ```
 
 ---
 
-## 📚 API reference
+## API reference
 
 ### Permissions
 
-#### `getPermissionStatusAsync(): Promise<SmsPermissionStatus>`
+#### `getPermissionStatusAsync()`
 
-Returns the current status for `READ_SMS` + `RECEIVE_SMS`. Values: `'granted' | 'denied' | 'undetermined'`. Resolves to `'denied'` on iOS / web (no concept of granting SMS access on those platforms).
+```ts
+getPermissionStatusAsync(): Promise<SmsPermissionStatus>;
+```
 
-#### `requestPermissionsAsync(): Promise<SmsPermissionStatus>`
+Returns the current permission state without prompting:
 
-Prompts the user with the system permission dialog. After a `"Don't ask again"` denial, Android suppresses subsequent prompts and this method returns `'denied'` immediately — direct the user to system settings via `Linking.openSettings()` from `react-native`.
+| Value           | Meaning                                                                |
+| --------------- | ---------------------------------------------------------------------- |
+| `granted`       | Both `READ_SMS` and `RECEIVE_SMS` are granted.                         |
+| `denied`        | Permission is not granted; the prompt can still be shown.              |
+| `undetermined`  | The user has never been asked.                                         |
+| `blocked`       | The user picked **"Don't ask again"** — only system settings can fix it. |
+
+#### `requestPermissionsAsync()`
+
+```ts
+requestPermissionsAsync(): Promise<SmsPermissionStatus>;
+```
+
+Prompts the user. Resolves with the resulting status. Returns `'blocked'` when the prompt was previously dismissed with "Don't ask again".
+
+#### `ensurePermissionsAsync()`
+
+```ts
+ensurePermissionsAsync(): Promise<SmsPermissionStatus>;
+```
+
+Convenience wrapper — checks status, prompts only if not already granted, returns the final state. Use this in 99% of cases.
+
+#### `openAppSettings()`
+
+```ts
+openAppSettings(): Promise<void>;
+```
+
+Launches the host app's system settings page. Use this when the status is `'blocked'`.
 
 ---
 
-### Listening to live SMS
+### Listening
 
-#### `addSmsListener(callback, options?): EventSubscription`
-
-Subscribe to live SMS events. The callback fires for every incoming SMS with both the raw message and a parsed transaction (or `null` if no parser produced a result). The native receiver starts lazily on the first listener and tears down when the last subscription is removed.
+#### `addSmsListener(callback, options?)`
 
 ```ts
-const sub = addSmsListener(
-  ({ raw, transaction }) => {
-    // raw is always present
-    // transaction is null for non-financial SMS (OTPs, promos, …)
-  },
-  {
-    minConfidence: 0.5,        // [default 0] drop parses below this score
-    deduplicate: true,         // [default true] suppress same address+body within 5s
-    extraKeywords: ['promo'],  // [default []] also emit on these substring hits
-  },
-);
-
-sub.remove();
+addSmsListener(
+  callback: (event: SmsReceivedEvent) => void,
+  options?: StartListeningOptions
+): EventSubscription;
 ```
 
-> 🧠 **`minConfidence` is enforced in JS** so you can change it without a native rebuild. Use [the confidence guide](#-confidence-score-guide) to pick the right threshold.
+Subscribes to live SMS events. Calls the native `startListening` automatically on the first subscription, and `stopListening` automatically when the last subscription is removed (ref-counted).
 
-#### `startListening(options?): Promise<void>` / `stopListening(): Promise<void>` / `isListening(): boolean`
+Each event includes:
 
-Lower-level, callback-less control over the native receiver. Useful when delivery is handled elsewhere (e.g. a foreground service that you maintain at the app layer). Most apps should use `addSmsListener` instead.
+- `raw` — the original SMS (`RawSmsMessage`)
+- `transaction` — `ParsedTransaction | null`
+- `category` — `'TRANSACTION' | 'OTP' | 'PROMOTIONAL' | 'OTHER'`
+
+**Options:**
+
+| Option            | Type            | Default | Effect                                                                                  |
+| ----------------- | --------------- | ------- | --------------------------------------------------------------------------------------- |
+| `minConfidence`   | `number`        | `0`     | Only emit events whose parsed `confidence ≥` this value.                                |
+| `extraKeywords`   | `string[]`      | `[]`    | Extra body keywords that count as a match in addition to built-in heuristics.           |
+| `deduplicate`     | `boolean`       | `true`  | Suppress duplicate SMS (same address + body within 5 s).                                |
+| `ignoreOtp`       | `boolean`       | `false` | Drop events the classifier flags as OTPs.                                               |
+| `senderAllowlist` | `string[]`      | `[]`    | Restrict events to these sender addresses (case-insensitive substring match).           |
+
+#### `startListening(options?)`
 
 ```ts
-await startListening({ deduplicate: true, extraKeywords: [] });
-console.log(isListening()); // → true
-await stopListening();
+startListening(options?: StartListeningOptions): Promise<void>;
 ```
+
+Lower-level alternative — explicitly starts the native receiver without registering a JS callback. Useful when delivery is handled by another subsystem (e.g. a foreground service).
+
+#### `stopListening()`
+
+```ts
+stopListening(): Promise<void>;
+```
+
+Hard-stops the receiver and removes **all** active listeners. Safe to call when not listening.
+
+#### `isListening()`
+
+```ts
+isListening(): boolean;
+```
+
+Whether the native broadcast receiver is currently registered.
 
 ---
 
-### Reading the inbox
+### Inbox query
 
-#### `getRecentMessages(options?): Promise<{ raw: RawSmsMessage; transaction: ParsedTransaction | null }[]>`
-
-Reads from the system SMS content provider. Requires `READ_SMS` to have been granted. Sorted **newest first**. Each row pairs the raw SMS with a parsed transaction (or `null` if no parser produced a result).
+#### `getRecentMessages(options?)`
 
 ```ts
-const rows = await getRecentMessages({
-  limit: 100,             // [default 50, capped at 500]
-  sinceTimestamp: 0,      // [default 0] Unix epoch ms; 0 = no lower bound
-  onlyTransactions: true, // [default false] pre-filter at the SQL layer
+getRecentMessages(options?: GetRecentMessagesOptions): Promise<Array<{
+  raw: RawSmsMessage;
+  transaction: ParsedTransaction | null;
+}>>;
+```
+
+Reads recent SMS from the system inbox. Throws `SmsPermissionError` when called without `READ_SMS`.
+
+| Option            | Type      | Default | Effect                                                                  |
+| ----------------- | --------- | ------- | ----------------------------------------------------------------------- |
+| `limit`           | `number`  | `50`    | Max rows. Capped at `500`.                                              |
+| `sinceTimestamp`  | `number`  | `0`     | Only return SMS newer than this Unix epoch ms.                          |
+| `onlyTransactions`| `boolean` | `false` | Pre-filter at the SQL layer using transaction-indicator keywords.       |
+| `senderAllowlist` | `string[]`| `[]`    | Restrict to these sender addresses (case-insensitive substring match).  |
+| `minConfidence`   | `number`  | `0`     | Drop rows whose parser confidence is below this.                        |
+
+---
+
+### Parsing
+
+#### `parseTransactionSms(raw)`
+
+```ts
+parseTransactionSms(raw: RawSmsMessage): ParsedTransaction | null;
+```
+
+Run the built-in heuristic parser on a single SMS. Returns `null` if the message is clearly not a transaction (no indicator keywords AND no detectable amount), or if it's an OTP.
+
+#### `isLikelyTransactionSms(body)`
+
+```ts
+isLikelyTransactionSms(body: string): boolean;
+```
+
+Fast keyword-only gate. Use as a cheap pre-filter before the full parser.
+
+#### `classifySms(raw)`
+
+```ts
+classifySms(raw: RawSmsMessage): SmsCategory;
+```
+
+Coarse classification: `'TRANSACTION'` / `'OTP'` / `'PROMOTIONAL'` / `'OTHER'`.
+
+#### `normaliseBankCode(address)`
+
+```ts
+normaliseBankCode(address: string): string | null;
+```
+
+Maps a sender address (e.g. `VK-HDFCBK`, `JM-JAZZCS-S`) to a stable canonical id (`HDFC`, `JAZZCASH`). Returns `null` when no match — useful as an analytics key since DLT short codes vary by carrier.
+
+---
+
+### OTP detection
+
+#### `isLikelyOtpSms(body)`
+
+```ts
+isLikelyOtpSms(body: string): boolean;
+```
+
+Returns `true` when the body looks like a 2FA / OTP message.
+
+#### `extractOtp(raw)`
+
+```ts
+extractOtp(raw: RawSmsMessage): ParsedOtp | null;
+```
+
+Returns the OTP digits, validity window (in seconds), and best-guess sender. Use this to autofill verification screens:
+
+```ts
+addSmsListener(({ raw, category }) => {
+  if (category !== 'OTP') return;
+  const otp = extractOtp(raw);
+  if (otp) setVerificationCode(otp.code);
 });
 ```
 
-`onlyTransactions: true` filters at the **native SQL layer** before the data crosses the JS bridge — much faster on large inboxes than filtering in JS afterwards.
+---
+
+### Aggregation utilities
+
+All operate on plain `ParsedTransaction[]` — no native calls, no permissions.
+
+#### `summarizeTransactions(txns, options?)`
+
+```ts
+summarizeTransactions(
+  txns: ParsedTransaction[],
+  options?: { minConfidence?: number; currency?: string }
+): TransactionSummary;
+```
+
+Rolls up totals across credits, debits, channels, senders, and currencies. Skips low-confidence and `FAILED` rows.
+
+```ts
+const s = summarizeTransactions(txns, { currency: 'PKR' });
+console.log(s.net, s.byChannel.UPI.debit, s.bySender.HBL.credit);
+```
+
+#### `groupTransactions(txns, keyFn)`
+
+```ts
+groupTransactions<K extends string | number>(
+  txns: ParsedTransaction[],
+  keyFn: (t: ParsedTransaction) => K
+): Record<K, ParsedTransaction[]>;
+```
+
+Group by any key — sender, channel, day, currency.
+
+```ts
+const byDay = groupTransactions(txns, (t) =>
+  new Date(t.timestamp).toISOString().slice(0, 10)
+);
+```
+
+#### `filterByDateRange(txns, from, to)`
+
+```ts
+filterByDateRange(txns, from: number, to: number): ParsedTransaction[];
+```
+
+Inclusive `[from, to]` range filter. Both are Unix epoch ms.
+
+#### `formatAmount(t, options?)`
+
+```ts
+formatAmount(
+  t: { amount: number | null; currency: string | null },
+  options?: { locale?: string; fallbackCurrency?: string }
+): string;
+```
+
+Render an amount using `Intl.NumberFormat`. Falls back gracefully on unknown currencies.
+
+#### `signedAmount(t)`
+
+```ts
+signedAmount(t: ParsedTransaction): number;
+```
+
+Signed delta: positive for `CREDIT`, negative for `DEBIT`, `0` for `UNKNOWN` / `FAILED` / `PENDING`.
 
 ---
 
 ### Custom parsers
 
-#### `registerParser(parser): () => void`
-
-Register a parser that runs **before** the built-in heuristic parser. The first parser to return a non-null `ParsedTransaction` wins; if none match, the default heuristic parser runs.
+#### `registerParser(parser)`
 
 ```ts
-import { registerParser, parseTransactionSms } from 'expo-transaction-sms-reader';
+registerParser(parser: CustomParser): () => void;
+```
 
-const unregister = registerParser((raw) => {
-  if (!raw.address.toUpperCase().includes('MEEZAN')) return null;
-  // Reuse the default parser, then layer your overrides on top.
-  const parsed = parseTransactionSms(raw);
-  if (!parsed) return null;
-  return { ...parsed, sender: 'Meezan Bank', confidence: 0.95 };
-});
+Register a parser that runs *before* the built-in one. The first parser to return non-null wins. Returns an unregister function.
 
-// later, e.g. on logout
+```ts
+import { registerParser, type CustomParser } from 'expo-transaction-sms-reader';
+
+const handleQuirkyBank: CustomParser = (raw) => {
+  if (!raw.address.includes('QUIRKY')) return null;
+  const m = /Amt:([0-9.]+)/i.exec(raw.body);
+  if (!m) return null;
+  return {
+    type: 'DEBIT',
+    amount: Number(m[1]),
+    currency: 'PKR',
+    sender: raw.address,
+    bankCode: 'QUIRKY',
+    account: null,
+    balance: null,
+    reference: null,
+    merchant: null,
+    channel: 'BANK_TRANSFER',
+    status: 'SUCCESS',
+    timestamp: raw.timestamp,
+    confidence: 0.9,
+    raw,
+  };
+};
+
+const unregister = registerParser(handleQuirkyBank);
+// …
 unregister();
 ```
 
-> 🛡️ Custom parsers must **never throw** — exceptions are caught by the runtime and the parser is silently skipped. If you need to log debug info, wrap your code in `try/catch` and emit your own log.
-
-#### `clearParsers(): void`
-
-Remove every registered parser. Useful in tests.
-
----
-
-### Pure parser utilities
-
-These work standalone — handy for **unit tests**, **batch processing exported message dumps**, or running parsers on data from elsewhere (e.g. a server-side ingest pipeline).
-
-#### `parseTransactionSms(raw: RawSmsMessage): ParsedTransaction | null`
-
-Run the built-in heuristic parser on a single SMS. Returns `null` only when the message clearly is not a transaction (no indicator keywords AND no detectable amount). Otherwise always returns a `ParsedTransaction` — inspect `confidence` to gauge reliability.
-
-#### `isLikelyTransactionSms(body: string): boolean`
-
-Quick boolean check: does this SMS body even look like a transaction? Used internally by `getRecentMessages({ onlyTransactions: true })` and exposed for callers who want the same heuristic.
-
----
-
-## 🎯 Common patterns & recipes
-
-### Backfill + live listener
-
-The pattern from the [complete example](#-complete-example), distilled:
+#### `clearParsers()`
 
 ```ts
-const recent = await getRecentMessages({ limit: 200, onlyTransactions: true });
-setTxns(recent.flatMap((r) => (r.transaction ? [r.transaction] : [])));
-
-const sub = addSmsListener(({ transaction }) => {
-  if (transaction) setTxns((prev) => [transaction, ...prev]);
-});
+clearParsers(): void;
 ```
 
-### Filter only debits (spending tracker)
+Removes all registered custom parsers.
+
+---
+
+### Errors
+
+#### `UnsupportedPlatformError`
+
+Thrown by Android-only methods on iOS / web. `instanceof`-checkable.
 
 ```ts
-addSmsListener(({ transaction }) => {
-  if (transaction?.type === 'DEBIT' && transaction.confidence >= 0.6) {
-    addToSpendingLog(transaction);
+import { UnsupportedPlatformError } from 'expo-transaction-sms-reader';
+
+try {
+  await startListening();
+} catch (e) {
+  if (e instanceof UnsupportedPlatformError) {
+    // hide the SMS UI on iOS
   }
-});
-```
-
-### Filter by bank
-
-```ts
-const ALLOWED = ['HBL', 'UBL', 'MEEZAN', 'JAZZCASH'];
-addSmsListener(({ raw, transaction }) => {
-  if (!ALLOWED.some((b) => raw.address.toUpperCase().includes(b))) return;
-  if (transaction) saveTransaction(transaction);
-});
-```
-
-### Persist with AsyncStorage
-
-```ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-addSmsListener(async ({ transaction }) => {
-  if (!transaction || transaction.confidence < 0.5) return;
-  const existing = JSON.parse((await AsyncStorage.getItem('txns')) ?? '[]');
-  await AsyncStorage.setItem('txns', JSON.stringify([transaction, ...existing]));
-});
-```
-
-### Bank-specific custom parser
-
-```ts
-registerParser((raw) => {
-  // HBL Pakistan format: "Tx ID: ABC12345 / Rs.1500.00 Dr from..."
-  if (!raw.address.toUpperCase().includes('HBL')) return null;
-  const txMatch = /Tx\s*ID[:\s]+([A-Z0-9]+)/i.exec(raw.body);
-  const amtMatch = /Rs\.?\s*([\d,.]+)/i.exec(raw.body);
-  return {
-    type: /Dr\b/i.test(raw.body) ? 'DEBIT' : 'CREDIT',
-    amount: amtMatch ? Number(amtMatch[1].replace(/,/g, '')) : null,
-    currency: 'PKR',
-    sender: 'HBL Pakistan',
-    account: null,
-    balance: null,
-    reference: txMatch?.[1] ?? null,
-    merchant: null,
-    timestamp: raw.timestamp,
-    confidence: 0.95,
-    raw,
-  };
-});
-```
-
-### Cross-platform safe import (iOS/web builds)
-
-```ts
-import { Platform } from 'react-native';
-import { addSmsListener } from 'expo-transaction-sms-reader';
-
-if (Platform.OS === 'android') {
-  addSmsListener(handler);
 }
 ```
 
----
+#### `SmsPermissionError`
 
-## 🎚️ Confidence score guide
-
-The parser assigns a confidence in `[0, 1]` based on how many signals it could extract. Pick a threshold based on your tolerance for false positives:
-
-| Threshold | Use case                                      | Trade-off                                                       |
-|-----------|-----------------------------------------------|------------------------------------------------------------------|
-| `≥ 0.4`   | Show in a "raw stream" debug view             | Catches almost everything; some false positives                  |
-| `≥ 0.5`   | Auto-categorise into "needs review" bucket    | Balanced — recommended default for a UI list                     |
-| `≥ 0.7`   | Auto-add to a budgeting ledger                | High precision; some real transactions will fall through         |
-| `≥ 0.85`  | Auto-trigger spend alerts / budget overrun UX | Only fully-extracted transactions; will miss exotic SMS formats  |
-
-Confidence is built up additively: indicator keywords (+0.25), an extracted amount (+0.25), a known type (+0.15), then `+0.1` each for currency/account/reference and `+0.05` for balance. Maxes out at `0.95`.
+Thrown by `getRecentMessages` when called without `READ_SMS`.
 
 ---
 
-## 🧰 Type reference
+## Supported banks & wallets
 
-```ts
-type TransactionType = 'CREDIT' | 'DEBIT' | 'UNKNOWN';
-type SmsPermissionStatus = 'granted' | 'denied' | 'undetermined';
+The sender registry resolves these to canonical `bankCode` values and locks the currency:
 
-interface RawSmsMessage {
-  /** Internal id from the SMS content provider; null for live broadcasts. */
-  id: string | null;
-  /** Originating address — bank short code or phone number. */
-  address: string;
-  /** Full SMS body (multipart messages are pre-concatenated). */
-  body: string;
-  /** Unix epoch ms when the device received the message. */
-  timestamp: number;
-  /** SIM slot index when reported by the OS; null on single-SIM / older Android. */
-  subscriptionId: number | null;
-}
+| Region         | Banks                                                                                                                                                | Wallets / UPI                                                              |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **Pakistan**   | HBL, UBL, MCB, Meezan, Allied (ABL), Askari (AKBL), Faysal, Bank Alfalah (BAFL), Standard Chartered, Habib Metro, Bank Al Habib, Soneri, Summit, Silkbank, NBP, JS Bank, Dubai Islamic Bank, BankIslami | JazzCash, Easypaisa, Sadapay, Nayapay, Konnect, UPaisa                     |
+| **India**      | HDFC, ICICI, SBI, Axis, Kotak, Yes Bank, IDFC, RBL, Canara, PNB, Bank of Baroda, Federal, IndusInd, IDBI, Citibank, American Express                  | Paytm, PhonePe, GPay, BHIM, Amazon Pay, Mobikwik, Freecharge               |
+| **Bangladesh** | DBBL, BRAC, EBL                                                                                                                                       | bKash, Nagad, Rocket, Upay                                                 |
+| **GCC**        | Emirates NBD, ADCB, FAB, Mashreq, RAK Bank · Al Rajhi, Riyad Bank, NCB, Alinma                                                                        | —                                                                          |
 
-interface ParsedTransaction {
-  type: TransactionType;
-  amount: number | null;
-  currency: string | null;   // ISO-4217 (PKR, INR, BDT, USD, …) or null
-  sender: string;            // Bank / wallet / short code that sent the SMS
-  account: string | null;    // Card or account mask, e.g. "****1234"
-  balance: number | null;    // Available balance after the txn, when present
-  reference: string | null;  // TXN id / RRN / UTR / UPI ref
-  merchant: string | null;   // Counterparty extracted via "at"/"to"/"from"
-  timestamp: number;
-  confidence: number;        // [0, 1] — see Confidence score guide
-  raw: RawSmsMessage;        // Original SMS, for fallback parsing or audit
-}
+Don't see your bank? **Open a PR** adding a row to `SENDER_BANK_REGISTRY` in [`src/parser.ts`](./src/parser.ts) — it's a one-line change plus a sample SMS in the tests.
 
-interface SmsReceivedEvent {
-  raw: RawSmsMessage;
-  transaction: ParsedTransaction | null;
-}
+---
 
-interface StartListeningOptions {
-  minConfidence?: number;   // default 0
-  extraKeywords?: string[]; // default []
-  deduplicate?: boolean;    // default true
-}
+## How the parser works
 
-interface GetRecentMessagesOptions {
-  limit?: number;           // default 50, capped at 500
-  sinceTimestamp?: number;  // default 0
-  onlyTransactions?: boolean; // default false
-}
+The parser is a layered heuristic, not a black box. Each layer adds a single piece of structured information:
 
-type CustomParser = (raw: RawSmsMessage) => ParsedTransaction | null;
+1. **OTP gate** — `isLikelyOtpSms` short-circuits the whole pipeline. OTPs are never treated as transactions, even when they mention an amount.
+2. **Indicator gate** — `isLikelyTransactionSms` checks for transaction-shaped keywords (`debited`, `credited`, `a/c`, `upi`, `imps`, …). Messages that pass *or* contain a detectable amount continue.
+3. **Amount detection** — collects every number with a currency prefix/suffix; first currency-tagged amount wins. Falls back to the largest standalone 3+ digit number when no currency token is present.
+4. **Type detection** — keyword scoring for CREDIT vs DEBIT, with explicit "credit alert" / "debit alert" headers given extra weight.
+5. **Channel detection** — regex sweep for `UPI` / `IMPS` / `NEFT` / `RTGS` / `CARD` / `ATM` / `POS` / `WALLET` / `BANK_TRANSFER` / `CHEQUE` / `ONLINE`. First match wins.
+6. **Status detection** — `FAILED` / `PENDING` / `SUCCESS` based on disposition keywords.
+7. **Currency disambiguation** — sender registry first (locks "Rs" between PKR / INR), then body tokens.
+8. **Field extraction** — account mask, reference id, balance, merchant, bank code.
+9. **Confidence scoring** — see below.
+
+You can see the entire pipeline in [`src/parser.ts`](./src/parser.ts) — it's ~500 LOC of pure TypeScript with no external dependencies.
+
+---
+
+## Confidence model
+
+```
+confidence  =  0.25 * has_indicator_keywords
+            +  0.25 * has_amount
+            +  0.15 * type_resolved
+            +  0.10 * has_currency
+            +  0.10 * has_bank_code
+            +  0.08 * has_account_mask
+            +  0.07 * has_reference_id
+            +  0.05 * has_balance
+            +  0.05 * has_channel
+
+  // capped at 0.95 — heuristic, not oracle
+  // FAILED   -> capped at 0.70
+  // PENDING  -> capped at 0.80
 ```
 
-All types are exported from the package root:
-
-```ts
-import type {
-  RawSmsMessage,
-  ParsedTransaction,
-  SmsReceivedEvent,
-  StartListeningOptions,
-  GetRecentMessagesOptions,
-  CustomParser,
-  TransactionType,
-  SmsPermissionStatus,
-} from 'expo-transaction-sms-reader';
-```
+| Range       | Meaning                                                       |
+| ----------- | ------------------------------------------------------------- |
+| `≥ 0.80`    | Almost always correct. Safe to act on without user review.    |
+| `0.50–0.80` | Likely correct. Show with a "review" affordance.              |
+| `0.40–0.50` | Probably a transaction; some fields may be wrong.             |
+| `< 0.40`    | Treat as informational. Often missing amount or type.         |
 
 ---
 
-## 🧪 Example output
-
-| SMS body                                                                                        | Parsed                                                                  |
-|-------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
-| `Rs. 1,500.00 debited from A/C ****1234 on 12-Jan. Avbl Bal Rs.45,200. Ref: TXN98237. -HBL`     | `DEBIT · PKR 1500 · acct ****1234 · ref TXN98237 · bal 45200 · 0.85`    |
-| `Credit Alert: PKR 25,000.00 received in your JazzCash wallet. TID: JC8721KQ`                   | `CREDIT · PKR 25000 · ref JC8721KQ · 0.80`                              |
-| `INR 499.00 spent on HDFC Card xx9921 at AMAZON IN. Avl bal INR 8,210.45. Ref 401923`           | `DEBIT · INR 499 · acct xx9921 · merchant AMAZON IN · ref 401923 · 0.90` |
-| `Sent BDT 2,500.00 to Rahim from your bKash A/C. TrxID: 9C8S2TXY. Bal BDT 14,300.50.`           | `DEBIT · BDT 2500 · merchant Rahim · ref 9C8S2TXY · bal 14300.50 · 0.85` |
-| `OTP 824931 valid 5 mins. Do not share.`                                                        | `null` (not a transaction)                                              |
-| `Get 50% off on your next Foodpanda order — code SAVE50`                                        | `null` (not a transaction)                                              |
-
----
-
-## 🧷 Platform safety (cross-platform builds)
-
-The package can be imported on any platform — calling Android-only methods on iOS / web behaves predictably:
-
-| Method                          | iOS / web behaviour                          |
-|---------------------------------|----------------------------------------------|
-| `getPermissionStatusAsync()`    | resolves to `'denied'`                       |
-| `requestPermissionsAsync()`     | resolves to `'denied'`                       |
-| `addSmsListener()`              | throws `UnsupportedPlatformError`            |
-| `startListening()`              | throws `UnsupportedPlatformError`            |
-| `stopListening()`               | resolves (no-op)                             |
-| `isListening()`                 | returns `false`                              |
-| `getRecentMessages()`           | throws `UnsupportedPlatformError`            |
-| `parseTransactionSms()`         | works (pure JS — no native bridge)           |
-| `isLikelyTransactionSms()`      | works (pure JS — no native bridge)           |
-| `registerParser()`              | works (pure JS — no native bridge)           |
-
-For maximum safety, gate runtime calls behind `Platform.OS === 'android'`.
-
----
-
-## 🛡 Permissions & Google Play policy
-
-This is the part that catches almost every first-time SMS-package author by surprise. Read carefully **before** you ship.
-
-### What we need
-
-- `android.permission.READ_SMS` — read the system SMS inbox via the content provider
-- `android.permission.RECEIVE_SMS` — receive `SMS_RECEIVED` broadcasts in real-time
-
-The Config Plugin injects both into the merged `AndroidManifest.xml` for you.
-
-### What Google requires
-
-Google classifies these as **restricted permissions**. Apps requesting them are auto-rejected from the Play Store unless the developer:
-
-1. **Submits the [Permissions Declaration form](https://support.google.com/googleplay/android-developer/answer/10208820)** in Play Console.
-2. **Selects an approved use-case** — for budgeting / expense / fintech apps, the relevant category is **"Financial features that require SMS access to function"**.
-3. **Provides a screen recording** showing the user granting permission and the app actually using SMS data on-device.
-4. **Links to a privacy policy** that explicitly states no SMS body leaves the device.
-
-Allow **3–10 business days** for review. First submissions are commonly rejected once for missing demo footage; resubmit with the requested clip.
-
-> 🚨 **This is a release-blocker, not a code issue.** Debug builds work without it. Production listings do not. Plan for the review window in your launch schedule.
-
----
-
-## ⚡ Performance & battery
-
-- **Cold start:** the receiver registers in <5 ms. Inbox queries run on the IO dispatcher and don't block the JS thread.
-- **Memory:** the de-dup ring buffer holds at most 32 entries (`address|hash` pairs). Cleared on `stopListening()`.
-- **Battery:** SMS broadcasts wake the app for ~50 ms each. On a phone receiving 30 transaction SMS/day, expected impact is well under 0.1% of battery.
-- **Process death:** if the OEM (Xiaomi, Vivo, OnePlus, …) kills your background process, broadcasts queued while dead will not be delivered. Either:
-  - Document the OEM "autostart" toggle for end users, or
-  - Run a foreground service at the app layer to keep the process alive (out of scope for this module).
-
-> ⚙️ **Threading:** all SMS broadcasts are dispatched to the JS thread via Expo's event bridge. If your handler is heavy (e.g. saves to a remote DB), wrap it in `setImmediate` / a queue to avoid blocking ingest.
-
----
-
-## 🛠 Troubleshooting
+## FAQ & troubleshooting
 
 <details>
-<summary><b>Permission keeps resolving to <code>'denied'</code> even after the dialog</b></summary>
+<summary><strong>The listener fires but `transaction` is always <code>null</code>.</strong></summary>
 
-The user likely tapped **"Don't ask again"** on a previous denial. Android suppresses subsequent prompts. Direct them to system settings instead:
+Either the SMS doesn't look like a transaction (the classifier returned `OTHER` / `PROMOTIONAL`) or the parser didn't find an amount. Inspect `event.category` and `event.raw.body` to debug, then either:
 
-```ts
-import { Linking } from 'react-native';
+- add a `CustomParser` for that specific format,
+- pass `extraKeywords: ['your-bank-keyword']` to widen the listener gate,
+- file an issue with the SMS body so we can extend the built-in heuristics.
 
-// Opens your app's permission page directly — no extra deps required.
-await Linking.openSettings();
-```
 </details>
 
 <details>
-<summary><b>No events firing in production (works in dev)</b></summary>
+<summary><strong>I'm getting <code>blocked</code> instead of <code>denied</code>.</strong></summary>
 
-The three usual suspects, in order:
+The user picked "Don't ask again" on the system permission prompt. The OS will not show it again. Use `openAppSettings()` to send them to the OS settings page where they can re-grant.
 
-1. **Battery optimization** is killing your background process. Educate users to add your app to the "Unrestricted battery" list, or run a foreground service.
-2. **OEM autostart** — Xiaomi, Vivo, Oppo, OnePlus all require a manual toggle that no API can flip. Document it in your onboarding.
-3. The receiver was started **before permission was granted**. Always check `getPermissionStatusAsync()` first.
 </details>
 
 <details>
-<summary><b>Duplicate events for the same SMS</b></summary>
+<summary><strong>Why is the receiver registered at runtime instead of in the manifest?</strong></summary>
 
-Already handled — the receiver de-duplicates by `(address, body)` within a 5-second window. If you're still seeing dupes:
-- Make sure you only call `addSmsListener` once (a re-render that re-attaches the listener will multi-cast).
-- Set `deduplicate: true` explicitly (it's the default, but easy to typo away).
-- Check you don't have a separate `startListening()` call competing with `addSmsListener`.
+A statically declared `RECEIVE_SMS` receiver triggers Google Play's **default-handler-only** policy review — your app would have to be the user's *default SMS app* to ship. Runtime registration avoids that policy entirely; you still need the SMS-permissions declaration form, but you don't have to be the default messaging app.
+
 </details>
 
 <details>
-<summary><b>Parser returns the wrong amount / type for my bank</b></summary>
+<summary><strong>Does this work on iOS?</strong></summary>
 
-Register a custom parser:
+No, and it can't. iOS does not expose any system-wide API for reading SMS. Every method on iOS resolves to a typed no-op so cross-platform builds don't break.
 
-```ts
-import { registerParser, parseTransactionSms } from 'expo-transaction-sms-reader';
-
-registerParser((raw) => {
-  if (raw.address !== 'MY-BANK') return null;
-  const parsed = parseTransactionSms(raw);
-  return parsed && { ...parsed, /* your overrides */ };
-});
-```
-
-Then please [open a PR](#-contributing) with a redacted test fixture so we can fix the default heuristics for everyone. 🙏
 </details>
 
 <details>
-<summary><b><code>UnsupportedPlatformError</code> on iOS / web</b></summary>
+<summary><strong>Will the receiver wake my app from a killed state?</strong></summary>
 
-Expected — the package is Android-only. Wrap calls behind `Platform.OS === 'android'` for cross-platform builds. See [Platform safety](#-platform-safety-cross-platform-builds).
+No. The receiver is registered programmatically when your JS code runs — if the app process is dead, the receiver is gone. If you need background SMS handling across kills, pair this package with a foreground service (out of scope here).
+
 </details>
 
 <details>
-<summary><b>Play Store rejection: "Use of restricted permissions"</b></summary>
+<summary><strong>Can I use this in Expo Go?</strong></summary>
 
-You skipped (or failed) the Permissions Declaration. See [Permissions & Google Play policy](#-permissions--google-play-policy) for the recovery path.
+No. This is a custom native module — Expo Go doesn't ship it. Use a dev client (`npx expo run:android`) or an EAS build.
+
 </details>
 
 <details>
-<summary><b>"Module not found: Can't resolve 'expo-transaction-sms-reader'"</b></summary>
+<summary><strong>EAS build fails with "Unresolved reference 'Coroutine'".</strong></summary>
 
-Three common causes:
+You're on `0.1.0`. Upgrade to `0.1.1` or later — the import was missing in `0.1.0`. `npm install expo-transaction-sms-reader@latest`.
 
-1. You haven't run `npx expo prebuild --clean` after installing — Expo autolinking needs the prebuild step.
-2. You're trying to run inside **Expo Go** — switch to a custom dev client (`npx expo run:android`).
-3. Stale `node_modules`. Run `rm -rf node_modules android/.gradle && npx expo prebuild --clean`.
 </details>
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
-PRs welcome! Especially valued:
+PRs welcome — especially:
 
-- **Bank fixtures** — drop your country's SMS samples (PII redacted: replace digits with `X`s, names with placeholders) into `__tests__/fixtures/`.
-- **New currencies** — extend `CURRENCY_MAP` and `SENDER_COUNTRY_HINTS` in [src/parser.ts](./src/parser.ts).
-- **Custom-parser presets** — bundled overrides for popular banks would be great.
-- **Platform stubs** — better iOS DX (e.g. integration with `expo-notifications` for similar fintech UX).
-
-Run the test suite:
+- **More bank / wallet entries** in the sender registry.
+- **Sample SMS** for banks the parser handles poorly (open an issue with the body, redact the digits).
+- **Locale support** — the parser is South-Asia-tilted; SEA, Africa, LatAm contributions are welcome.
+- **Test cases** with real (anonymised) SMS bodies.
 
 ```bash
+git clone https://github.com/aashir-athar/expo-transaction-sms-reader
+cd expo-transaction-sms-reader
 npm install
-npm run test
-npm run lint
+npx tsc --noEmit
 ```
 
-> 🪟 **Windows contributors:** `expo-module-scripts` ships its lifecycle helpers as bash scripts, which Node mis-parses on Windows (`set -eo pipefail` syntax error). Workarounds: use **WSL**, or skip the wrappers and run TypeScript directly — `npm install --ignore-scripts`, then `npx tsc -p tsconfig.json && npx tsc -p plugin/tsconfig.json`. Publishing also needs `npm publish --ignore-scripts`. macOS / Linux / CI are unaffected.
-
-For a full release / publish guide, see [ZERO-TO-DEPLOY.md](./ZERO-TO-DEPLOY.md).
-
 ---
 
-## 🗺️ Roadmap
+## License
 
-- [ ] Bundled parser presets for 20+ South-Asian banks
-- [ ] iOS hand-off recipe (push notifications from a server-side parser)
-- [ ] Optional foreground-service helper for OEMs that aggressively kill background processes
-- [ ] Web stub backed by a stub `MessagePort` for unit-testing parser logic in CI
-- [ ] Built-in metrics (counts of CREDIT / DEBIT / unknown for analytics dashboards)
-
-Have an idea? [Open an issue](https://github.com/aashir-athar/expo-transaction-sms-reader/issues/new).
-
----
-
-## 📄 License
-
-[MIT](./LICENSE) © 2026 expo-transaction-sms-reader contributors
-
----
-
-<div align="center">
-
-### Built with ❤️ for fintech builders in 🇵🇰 Pakistan, 🇮🇳 India, 🇧🇩 Bangladesh, and beyond.
-
-If this saved you time, please [⭐ star the repo](https://github.com/aashir-athar/expo-transaction-sms-reader) — it helps others discover it.
-
-</div>
+MIT © Aashir Athar — see [LICENSE](./LICENSE).

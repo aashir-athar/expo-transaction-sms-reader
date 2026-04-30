@@ -8,13 +8,13 @@ import android.os.Bundle
 import android.provider.Telephony
 import android.util.Log
 import expo.modules.kotlin.exception.CodedException
+import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
  * Public surface (matches `ExpoTransactionSmsReaderModule.ts`):
  *   - getPermissionStatusAsync()
  *   - requestPermissionsAsync()
+ *   - openAppSettings()
  *   - startListening({ deduplicate, extraKeywords })
  *   - stopListening()
  *   - isListening()
@@ -58,7 +59,9 @@ class ExpoTransactionSmsReaderModule : Module() {
     // ---------------------------------------------------------------------
 
     AsyncFunction("getPermissionStatusAsync") {
-      PermissionHelper.currentStatus(context).value
+      // Use the activity-aware variant when possible so we can distinguish
+      // BLOCKED ("don't ask again") from plain DENIED.
+      PermissionHelper.currentStatus(appContext).value
     }
 
     AsyncFunction("requestPermissionsAsync") Coroutine { ->
@@ -67,6 +70,15 @@ class ExpoTransactionSmsReaderModule : Module() {
       } catch (e: CodedException) {
         emitError(e.code, e.message ?: "Unknown error")
         SmsPermissionStatus.DENIED.value
+      }
+    }
+
+    Function("openAppSettings") {
+      try {
+        PermissionHelper.openAppSettings(context)
+      } catch (t: Throwable) {
+        Log.w(TAG, "Failed to open app settings", t)
+        emitError("ERR_OPEN_SETTINGS", t.message ?: "Could not open app settings.")
       }
     }
 
@@ -88,7 +100,8 @@ class ExpoTransactionSmsReaderModule : Module() {
 
         val rec = SmsBroadcastReceiver(
           listener = { payload -> emitSmsReceived(payload) },
-          deduplicate = options.deduplicate
+          deduplicate = options.deduplicate,
+          extraKeywords = options.extraKeywords
         )
 
         val filter = IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION).apply {
