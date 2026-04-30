@@ -70,12 +70,10 @@ internal class SmsBroadcastReceiver(
         val timestamp = sortedParts.first().timestampMillis
 
         if (body.isBlank()) continue
-        if (extraKeywords.isNotEmpty() && !matchesAnyKeyword(body)) {
-          // The JS layer also applies the broader transaction heuristics — we
-          // only short-circuit here when the *caller* explicitly narrowed the
-          // keyword list. Default behaviour (empty list) lets every SMS through.
-          // Skip silently — not a duplicate, just out of scope.
-        }
+        // When the caller explicitly narrowed the keyword list, short-circuit
+        // here so we don't burn an IPC hop on irrelevant SMS. Default
+        // behaviour (empty list) lets every SMS through to the JS layer.
+        if (extraKeywords.isNotEmpty() && !matchesAnyKeyword(body)) continue
         if (deduplicate && isDuplicate(address, body, timestamp)) continue
 
         listener(
